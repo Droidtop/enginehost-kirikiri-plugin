@@ -4,6 +4,7 @@ build/**
 build_*/**
 thirdparty/build/**
 thirdparty/port/**
+.vscode/settings.json
 
 # android
 local.properties

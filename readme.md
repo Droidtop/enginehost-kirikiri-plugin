@@ -3,16 +3,19 @@
 ![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/YuriSizuku/Kirikiroid2Yuri?color=green&label=krkr2yuri&style=flat-square7&logo=4chan)  ![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/YuriSizuku/Kirikiroid2Yuri/build_android.yml?label=android%28aarch64%29&style=flat-square)
 
 ☘️ A krikiroid2 project matained by Yurisizuku.  
-Support the newer android device and more format.  
+It will support the newer android device and more formats.
 
-New features :  
+Roadmap :
 
-- develop  
-  - [x] clear camke project structure
-  - [x] well documention for develop and usage
-  - [x] scripts to compile or cross compile without pain
-  - [x] vscode and android studio project for multi enviroment
-  - [x] ci in github action to automaticly build
+- core
+  - [ ] replace rendering from cocos to SDL2
+  - [ ] command line or config files for setting
+  - [ ] recent cx game (hash filename) decryption support
+- plugin
+  - [ ] [windowEx](https://github.com/wamsoft/windowEx)
+  - [ ] [layerEx](https://github.com/wamsoft/layerEx)
+  - [ ] [layerExDraw](https://github.com/wamsoft/layerExDraw) (gdiPlus)
+  - [ ] [scriptsEx](https://github.com/wamsoft/scriptsEx)
 - platform
   - android
     - [x] SDK level above 21 (android 5.1, Lolipop)
@@ -20,11 +23,13 @@ New features :
     - [ ] access extern sdcard by saf
   - windows
   - linux
-- render  
-- game support
-  - [ ] recent krkr game decryption support
+- develop  
+  - [x] camke project structure, documention for develop
+  - [x] scripts to compile or cross compile
+  - [x] vscode and android studio project for multi enviroment
+  - [x] ci in github action to automaticly build
 
-(This project is heavily relying on cocos. As I am not familiar with cocos, I am looking forward for your contribute to improve this project)
+(This project is heavily relying on cocos. Sooner or later, I might rewrite these parts and replace them by SDL2. And because that the upstream didn't provide all the plugins source code, it still needs sometime to adapt them.)
 
 ## 1. usage  
 
@@ -98,6 +103,7 @@ minor:
 
 ## 5. Todo
 
+See Roadmap.  
 ___
 Original information about kirikiroid2 bellow, also refered some dependencies from [ningshanwutuobang](https://github.com/ningshanwutuobang/Kirikiroid2).  
 
