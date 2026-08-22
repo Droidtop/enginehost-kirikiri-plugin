@@ -32,6 +32,7 @@
 #include "RenderManager.h"
 #include <sys/stat.h>
 #include "deprecated/CCString.h"
+#include "cocos2d/MainScene.h"
 
 USING_NS_CC;
 
@@ -587,9 +588,33 @@ void Android_PushEvents(const std::function<void()> &func) {
 }
 #endif
 void TVPCheckAndSendDumps(const std::string &dumpdir, const std::string &packageName, const std::string &versionStr);
+
+// Real fix for the "no known way to point Kirikiroid2's native init at an
+// arbitrary runtime folder" gap: on every other platform TVPCheckStartupArg
+// has a real answer (win32 reads argv[1], see Platform.cpp) -- Android's own
+// version just always returned false, forcing TVPMainFileSelectorForm's own
+// file-browser UI every launch. A host app (enginehost's RunActivity, in
+// particular) can now call KR2Activity.nativeSetStartupPath(path) -- see
+// that JNI export below -- any time before applicationDidFinishLaunching's
+// scheduled "launch" callback runs (matches KR2Activity.onCreate's own
+// existing initDump() call, right after super.onCreate()); if a path was
+// set, this skips the file selector and starts directly, exactly like the
+// win32 command-line-arg path already does.
+static std::string TVPAndroidStartupPath;
+
+extern "C" JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeSetStartupPath(JNIEnv* env, jclass cls, jstring path) {
+	const char *pszPath = env->GetStringUTFChars(path, NULL);
+	if (pszPath) TVPAndroidStartupPath = pszPath;
+	env->ReleaseStringUTFChars(path, pszPath);
+}
+
 bool TVPCheckStartupArg() {
 	// check dump
 	TVPCheckAndSendDumps(Android_GetDumpStoragePath(), GetPackageName(), TVPGetPackageVersionString());
+
+	if (!TVPAndroidStartupPath.empty()) {
+		return TVPMainScene::GetInstance()->startupFrom(TVPAndroidStartupPath);
+	}
 #if 0
 	// register event dispatcher
 	cocos2d::Director *director = cocos2d::Director::getInstance();

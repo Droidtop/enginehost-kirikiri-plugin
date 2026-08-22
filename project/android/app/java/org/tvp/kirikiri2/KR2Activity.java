@@ -319,7 +319,21 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
             requestExternalWrite();
         }
 		initDump(this.getFilesDir().getAbsolutePath() + "/dump");
+
+		// Real hook for a host app (enginehost's own RunActivity, in
+		// particular) to skip the file-browser UI and start a specific game
+		// folder directly -- see nativeSetStartupPath's own doc comment in
+		// AndroidUtils.cpp (TVPCheckStartupArg) for why this exists and
+		// exactly when it's safe to call.
+		String startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
+		if (startupPath != null && !startupPath.isEmpty()) {
+			nativeSetStartupPath(startupPath);
+		}
 	}
+
+	public static final String EXTRA_STARTUP_PATH = "org.tvp.kirikiri2.STARTUP_PATH";
+
+	private static native void nativeSetStartupPath(String path);
 	
 	@Override
 	public void onDestroy() {
