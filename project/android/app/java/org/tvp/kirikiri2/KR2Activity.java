@@ -320,12 +320,20 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         }
 		initDump(this.getFilesDir().getAbsolutePath() + "/dump");
 
-		// Real hook for a host app (enginehost's own RunActivity, in
-		// particular) to skip the file-browser UI and start a specific game
-		// folder directly -- see nativeSetStartupPath's own doc comment in
-		// AndroidUtils.cpp (TVPCheckStartupArg) for why this exists and
-		// exactly when it's safe to call.
-		String startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
+		// Real hook for a host app to skip the file-browser UI and start a
+		// specific game folder directly -- see nativeSetStartupPath's own
+		// doc comment in AndroidUtils.cpp (TVPCheckStartupArg) for why this
+		// exists and exactly when it's safe to call. Checks enginehost's
+		// own real dev.enginehost.LAUNCH contract extra ("path" --
+		// dev.enginehost.GameRunner's real putExtra key) first, since this
+		// activity IS now a real enginehost plugin (declares
+		// dev.enginehost.plugin.RUN in the manifest directly, no separate
+		// wrapper app); EXTRA_STARTUP_PATH stays as a fallback for any
+		// other real caller that isn't enginehost.
+		String startupPath = getIntent().getStringExtra("path");
+		if (startupPath == null || startupPath.isEmpty()) {
+			startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
+		}
 		if (startupPath != null && !startupPath.isEmpty()) {
 			nativeSetStartupPath(startupPath);
 		}

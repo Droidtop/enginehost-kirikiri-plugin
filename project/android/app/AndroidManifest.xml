@@ -25,6 +25,17 @@
         tools:targetApi="n">
         <meta-data android:name="android.app.lib_name"
                    android:value="krkr2yuri" />
+        <!--
+             Real enginehost plugin contract (dev.enginehost's own README,
+             PluginRegistry.discover). This app IS the plugin directly --
+             no separate wrapper app needed. MainActivity extends
+             org.tvp.kirikiri2.KR2Activity, which already reads
+             enginehost's real "path" launch extra (see that class's own
+             onCreate) and skips the file-browser UI when one is present.
+        -->
+        <meta-data android:name="dev.enginehost.plugin.engine" android:value="kirikiri2" />
+        <meta-data android:name="dev.enginehost.plugin.engineVersion" android:value="2.32" />
+        <meta-data android:name="dev.enginehost.plugin.pluginVersion" android:value="0.1.0" />
         <activity android:name=".MainActivity"
             android:screenOrientation="sensorLandscape"
                   android:configChanges="keyboardHidden|orientation|screenSize"
@@ -33,6 +44,10 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="dev.enginehost.plugin.RUN" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>
