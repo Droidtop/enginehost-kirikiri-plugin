@@ -33,11 +33,6 @@
              enginehost's real "path" launch extra (see that class's own
              onCreate) and skips the file-browser UI when one is present.
         -->
-        <meta-data android:name="dev.enginehost.plugin.engine" android:value="kirikiri2" />
-        <meta-data android:name="dev.enginehost.plugin.capabilities" android:resource="@raw/enginehost_capabilities" />
-        <!-- Kept for hosts predating capability schema v1. -->
-        <meta-data android:name="dev.enginehost.plugin.engineVersion" android:value="2.32" />
-        <meta-data android:name="dev.enginehost.plugin.pluginVersion" android:value="0.1.0" />
         <activity android:name=".MainActivity"
             android:screenOrientation="sensorLandscape"
                   android:configChanges="keyboardHidden|orientation|screenSize"
@@ -51,6 +46,11 @@
                 <action android:name="dev.enginehost.plugin.RUN" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <meta-data android:name="dev.enginehost.plugin.engine" android:value="kirikiri2" />
+            <meta-data android:name="dev.enginehost.plugin.capabilities" android:resource="@raw/enginehost_capabilities" />
+            <!-- Kept for hosts predating capability schema v1. -->
+            <meta-data android:name="dev.enginehost.plugin.engineVersion" android:value="2.32" />
+            <meta-data android:name="dev.enginehost.plugin.pluginVersion" android:value="0.1.0" />
         </activity>
     </application>
 </manifest> 
