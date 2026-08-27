@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "capabilities": [
+    {
+      "id": "kirikiri2-2.32",
+      "engineContext": "default",
+      "runtimeVersion": "2.32"
+    }
+  ]
+}
