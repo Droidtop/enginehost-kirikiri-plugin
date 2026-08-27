@@ -27,7 +27,7 @@
                    android:value="krkr2yuri" />
         <!--
              Real enginehost plugin contract (dev.enginehost's own README,
-             PluginRegistry.discover). This app IS the plugin directly --
+             PluginRegistry.discover). This app IS the plugin directly;
              no separate wrapper app needed. MainActivity extends
              org.tvp.kirikiri2.KR2Activity, which already reads
              enginehost's real "path" launch extra (see that class's own
