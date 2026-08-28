@@ -66,9 +66,7 @@ android {
         debug {
             debuggable true
             jniDebuggable true
-            jniDebuggable true
             renderscriptDebuggable true
-            signingConfig signingConfigs.release
         }
     }
 
