@@ -13,7 +13,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.yuri.kirikiri2"
+        applicationId "dev.enginehost.plugin.kirikiri.v231.slot1"
         targetSdkVersion PROP_TARGET_SDK_VERSION
         minSdkVersion PROP_MIN_SDK_VERSION
 
@@ -33,7 +33,7 @@ android {
             }
         }
         versionCode 1
-        versionName "1.4.0beta"
+        versionName "0.1.0"
     }
     signingConfigs {
         release {
@@ -91,7 +91,7 @@ android {
 
     android.applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "krkr2yuri_v${defaultConfig.versionName}.apk"
+            outputFileName = "enginehost-kirikiri-v231-${defaultConfig.versionName}.apk"
         }
     }
 }
