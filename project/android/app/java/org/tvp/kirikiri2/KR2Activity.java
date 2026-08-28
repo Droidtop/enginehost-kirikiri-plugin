@@ -303,6 +303,20 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
+		String engineHostPath = getIntent().getStringExtra("path");
+		if (engineHostPath != null) {
+			String context = getIntent().getStringExtra("engineContext");
+			String version = getIntent().getStringExtra("engineVersion");
+			if (context != null && !context.isEmpty() && !"default".equals(context)) {
+				throw new IllegalArgumentException("Unsupported KiriKiri engineContext: " + context);
+			}
+			if (!"2.31.2009.825".equals(version) && !"2.32".equals(version) && !"2.32.0".equals(version)) {
+				throw new IllegalArgumentException("Unsupported KiriKiri engineVersion: " + version);
+			}
+			if (!new File(engineHostPath).isDirectory()) {
+				throw new IllegalArgumentException("enginehost did not provide a valid KiriKiri game folder");
+			}
+		}
 		sInstance = this;
         Sp = PreferenceManager.getDefaultSharedPreferences(this);
 		super.onCreate(savedInstanceState);
@@ -330,7 +344,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		// dev.enginehost.plugin.RUN in the manifest directly, no separate
 		// wrapper app); EXTRA_STARTUP_PATH stays as a fallback for any
 		// other real caller that isn't enginehost.
-		String startupPath = getIntent().getStringExtra("path");
+		String startupPath = engineHostPath;
 		if (startupPath == null || startupPath.isEmpty()) {
 			startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
 		}

@@ -1,0 +1,45 @@
+name: Build enginehost KiriKiri2 plugin
+
+on:
+  push:
+    branches: [plugin-core, "plugin/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Restore upstream-published native dependencies
+        run: |
+          curl --fail --location --retry 5 --output thirdparty_port.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_port.tar.gz
+          curl --fail --location --retry 5 --output thirdparty_build.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
+          tar xzf thirdparty_port.tar.gz
+          tar xzf thirdparty_build.tar.gz
+      - name: Restore runtime assets
+        run: |
+          curl --fail --location --retry 5 --output upstream.apk \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/1.3.9_yuri/Kirikiroid2_yuri_1.3.9.apk
+          7z x upstream.apk assets
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 11
+      - name: Build plugin APK
+        working-directory: project/android
+        run: |
+          chmod +x gradlew
+          sudo mkdir -p /build_android
+          sudo chown "$USER" /build_android
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enginehost-kirikiri2-debug-apk
+          path: /build_android/outputs/apk/debug/*.apk
+          if-no-files-found: error

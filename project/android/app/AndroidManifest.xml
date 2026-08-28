@@ -48,8 +48,6 @@
             </intent-filter>
             <meta-data android:name="dev.enginehost.plugin.engine" android:value="kirikiri2" />
             <meta-data android:name="dev.enginehost.plugin.capabilities" android:resource="@raw/enginehost_capabilities" />
-            <!-- Kept for hosts predating capability schema v1. -->
-            <meta-data android:name="dev.enginehost.plugin.engineVersion" android:value="2.32" />
             <meta-data android:name="dev.enginehost.plugin.pluginVersion" android:value="0.1.0" />
         </activity>
     </application>
