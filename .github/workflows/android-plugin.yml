@@ -41,5 +41,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: enginehost-kirikiri2-debug-apk
-          path: /build_android/outputs/apk/debug/*.apk
+          path: ${{ github.workspace }}/build_android/outputs/apk/debug/*.apk
           if-no-files-found: error
