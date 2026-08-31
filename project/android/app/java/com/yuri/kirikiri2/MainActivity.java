@@ -14,5 +14,12 @@ public class MainActivity extends KR2Activity {
 		return true;
 	}
 	@Override
+	public ClassLoader getClassLoader() {
+		// Cocos caches context.getClassLoader() for JNI calls made on its GL
+		// thread. The base Enginehost context reports the host loader, while the
+		// runtime classes belong to this signed bundle's DexClassLoader.
+		return MainActivity.class.getClassLoader();
+	}
+	@Override
 	public int get_res_sd_operate_step() { return R.drawable.sd_operate_step; }
 }
