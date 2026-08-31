@@ -1,5 +1,5 @@
 {
-  "bundleId": "dev.enginehost.kirikiri2.2_31.v1",
+  "bundleId": "dev.enginehost.kirikiri.v1",
   "engine": "kirikiri2",
   "pluginVersion": "0.1.0",
   "apiVersion": 1,
@@ -10,15 +10,15 @@
   "resourceApks": ["runtime.apk"],
   "capabilities": [
     {
-      "id": "kirikiri2-2.31-v1",
+      "id": "kirikiri-v1",
       "engineContext": "default",
-      "runtimeVersion": "2.31.2009.825",
-      "supportedVersions": ["2.31.2009.825", "2.32", "2.32.0"]
+      "runtimeVersion": "0.1.0",
+      "acceptsAnyEngineVersion": true
     }
   ],
   "source": {
     "upstream": "https://github.com/YuriSizuku/Kirikiroid2Yuri",
-    "revision": "plugin/2.31"
+    "revision": "continuous"
   },
   "licenses": ["GPL-2.0-or-later and bundled upstream notices"]
 }
