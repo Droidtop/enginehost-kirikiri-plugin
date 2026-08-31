@@ -303,10 +303,10 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
-		String engineHostPath = getIntent().getStringExtra("path");
+		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
 		if (engineHostPath != null) {
-			String context = getIntent().getStringExtra("engineContext");
-			String version = getIntent().getStringExtra("engineVersion");
+			String context = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_CONTEXT");
+			String version = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_VERSION");
 			if (context != null && !context.isEmpty() && !"default".equals(context)) {
 				throw new IllegalArgumentException("Unsupported KiriKiri engineContext: " + context);
 			}
