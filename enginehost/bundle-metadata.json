@@ -6,7 +6,7 @@
   "entrypoint": "com.yuri.kirikiri2.MainActivity",
   "runtimeTransport": "android-activity",
   "origin": "https://github.com/droidtop/enginehost-kirikiri-plugin",
-  "dexFiles": ["classes.dex"],
+  "dexFiles": ["classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex"],
   "resourceApks": ["runtime.apk"],
   "capabilities": [
     {
