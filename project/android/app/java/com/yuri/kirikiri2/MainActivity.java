@@ -81,7 +81,7 @@ public class MainActivity extends KR2Activity {
 	public int get_res_sd_operate_step() { return R.drawable.sd_operate_step; }
 
 	@Override
-	protected void onCreate(Bundle savedInstanceState) {
+	public void onCreate(Bundle savedInstanceState) {
 		super.onCreate(savedInstanceState);
 		// A layer over the game for the cursor. Drawn, not an asset: a ring
 		// with a translucent fill, sized for a handheld screen.
