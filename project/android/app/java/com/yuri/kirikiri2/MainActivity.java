@@ -86,6 +86,16 @@ public class MainActivity extends KR2Activity {
 	}
 
 	@Override
+	public ClassLoader getClassLoader() {
+		// Cocos2dx caches context.getClassLoader() for the JNI calls it makes on
+		// its GL thread. The base enginehost context reports the host's loader,
+		// while the runtime classes belong to this signed bundle's
+		// DexClassLoader; without this the engine's first lookup finds nothing
+		// and dies calling getFilesDir() on a null context.
+		return MainActivity.class.getClassLoader();
+	}
+
+	@Override
 	public int get_res_sd_operate_step() { return R.drawable.sd_operate_step; }
 
 	@Override
