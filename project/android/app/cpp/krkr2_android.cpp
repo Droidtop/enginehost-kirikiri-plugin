@@ -182,6 +182,14 @@ extern "C" {
 		case KEYCODE_PLAY		: pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PLAY		; break;
 		case KEYCODE_DPAD_CENTER: pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_CENTER; break;
         case KEYCODE_DEL          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_BACKSPACE; break;
+		// Keys a visual novel is driven by; the wrapper's activity forwards
+		// them (and translates gamepad buttons into them).
+		case 62  /* KEYCODE_SPACE */      : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_SPACE; break;
+		case 111 /* KEYCODE_ESCAPE */     : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_ESCAPE; break;
+		case 113 /* KEYCODE_CTRL_LEFT */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_LEFT_CTRL; break;
+		case 114 /* KEYCODE_CTRL_RIGHT */ : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_RIGHT_CTRL; break;
+		case 92  /* KEYCODE_PAGE_UP */    : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_UP; break;
+		case 93  /* KEYCODE_PAGE_DOWN */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_DOWN; break;
 		default: return JNI_FALSE;
 		}
 
