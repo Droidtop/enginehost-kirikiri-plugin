@@ -672,6 +672,15 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
                 	nativeKeyAction(pKeyCode, true);
                     return true;
                 default:
@@ -691,6 +700,15 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
                 	nativeKeyAction(pKeyCode, false);
                     return true;
                 default:
