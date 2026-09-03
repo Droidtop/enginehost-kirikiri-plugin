@@ -1,0 +1,13 @@
+{
+  "algorithm": "SHA256withECDSA",
+  "formatVersion": 1,
+  "issuer": {
+    "algorithm": "SHA256withECDSA",
+    "id": "enginehost-official-v1",
+    "keySha256": "E01B8F3DB54F70F3AC5390EC63158F754FEF1E3716BDCB8DF45E20315651A803",
+    "signature": "MEQCIDEH1qg9lqY81DQ4anVfMc5HDK1nC7n6vAzD69kSP87/AiATJQcaZYWyOmUWqmDqJIZ191TutLn571O/dflN1PxBsQ=="
+  },
+  "keySha256": "98134927FAB389A12B28556F6B39B6FCDDBD0CC9D9C17D7EA7C29824EA5C7069",
+  "origin": "https://github.com/droidtop/enginehost-kirikiri-plugin",
+  "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAErJI6NhAQVoQLa6WNtjcxWcOXSBa1Gam9YxrFIlEjQ78g3IaCxRAzlmWNanW1inUvYJzIxs25i5HAdQMROJ4vHw=="
+}
