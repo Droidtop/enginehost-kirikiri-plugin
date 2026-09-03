@@ -306,12 +306,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
 		if (engineHostPath != null) {
 			String context = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_CONTEXT");
-			String version = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_VERSION");
 			if (context != null && !context.isEmpty() && !"default".equals(context)) {
 				throw new IllegalArgumentException("Unsupported KiriKiri engineContext: " + context);
-			}
-			if (!"2.31.2009.825".equals(version) && !"2.32".equals(version) && !"2.32.0".equals(version)) {
-				throw new IllegalArgumentException("Unsupported KiriKiri engineVersion: " + version);
 			}
 			if (!new File(engineHostPath).isDirectory()) {
 				throw new IllegalArgumentException("enginehost did not provide a valid KiriKiri game folder");
@@ -345,6 +341,16 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		// wrapper app); EXTRA_STARTUP_PATH stays as a fallback for any
 		// other real caller that isn't enginehost.
 		String startupPath = engineHostPath;
+		if (startupPath != null && !startupPath.isEmpty()) {
+			File gameFolder = new File(startupPath);
+			File looseStartup = new File(gameFolder, "startup.tjs");
+			File mainArchive = new File(gameFolder, "data.xp3");
+			if (looseStartup.isFile()) {
+				startupPath = looseStartup.getAbsolutePath();
+			} else if (mainArchive.isFile()) {
+				startupPath = mainArchive.getAbsolutePath();
+			}
+		}
 		if (startupPath == null || startupPath.isEmpty()) {
 			startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
 		}
