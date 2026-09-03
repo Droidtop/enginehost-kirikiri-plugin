@@ -12,6 +12,13 @@ android {
 //        targetCompatibility JavaVersion.VERSION_11
     }
 
+    androidResources {
+        // Enginehost attaches this APK's resources to the host's own
+        // Resources object and refuses a bundle compiled at 0x7f, the
+        // host's own id, because the host's table would win every lookup.
+        additionalParameters += ["--package-id", "0x80", "--allow-reserved-package-id"]
+    }
+
     defaultConfig {
         applicationId "dev.enginehost.plugin.kirikiri.v231.slot1"
         targetSdkVersion PROP_TARGET_SDK_VERSION
