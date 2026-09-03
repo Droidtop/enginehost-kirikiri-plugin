@@ -78,6 +78,14 @@ public class MainActivity extends KR2Activity {
 	};
 
 	@Override
+	public boolean isTaskRoot() {
+		// Cocos2dx treats a non-root activity as a duplicate launcher instance
+		// and finishes it in onCreate. Under enginehost the task is owned by the
+		// host's launch screen beneath us, on purpose; this activity is the game.
+		return true;
+	}
+
+	@Override
 	public int get_res_sd_operate_step() { return R.drawable.sd_operate_step; }
 
 	@Override
