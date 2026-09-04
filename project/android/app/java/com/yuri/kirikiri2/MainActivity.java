@@ -167,8 +167,16 @@ public class MainActivity extends KR2Activity {
 
 	// ---------------------------------------------------------------- pointer
 
+	private int motionLogBudget = 20;
+
 	@Override
 	public boolean dispatchGenericMotionEvent(MotionEvent event) {
+		if (motionLogBudget > 0 && (event.getSource() & (InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD)) != 0) {
+			motionLogBudget--;
+			Log.d(TAG, "Pad motion source=0x" + Integer.toHexString(event.getSource()) + " pad=" + isPad(event.getDevice())
+					+ " x=" + event.getAxisValue(MotionEvent.AXIS_X) + " y=" + event.getAxisValue(MotionEvent.AXIS_Y)
+					+ " hatX=" + event.getAxisValue(MotionEvent.AXIS_HAT_X) + " axes bound=" + padAxisActions);
+		}
 		if (isPad(event.getDevice()) && event.getAction() == MotionEvent.ACTION_MOVE) {
 			float x = 0f, y = 0f;
 			for (Map.Entry<Integer, String> bound : padAxisActions.entrySet()) {
@@ -200,6 +208,7 @@ public class MainActivity extends KR2Activity {
 		}
 		cursorShown = true;
 		cursorView.setVisibility(View.VISIBLE);
+		Log.d(TAG, "Cursor shown at " + cursorX + "," + cursorY);
 	}
 
 	private void setCursor(float x, float y) {
