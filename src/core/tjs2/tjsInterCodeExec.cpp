@@ -2131,6 +2131,16 @@ void tTJSInterCodeContext::TypeOfMemberIndirect(tTJSVariant *ra,
 		return;
 	}
 
+	// typeof obj[void]: no member can have a void name, so the answer is
+	// "undefined", the same as for any member that does not exist. Scripts
+	// probe optional menus this way, with a name that is void when the
+	// menu was never built.
+	if(TJS_GET_VM_REG(ra, code[3]).Type() == tvtVoid)
+	{
+		TJS_GET_VM_REG(ra, code[1]) = TJS_W("undefined");
+		return;
+	}
+
 	tjs_error hr;
 	tTJSVariantClosure clo = TJS_GET_VM_REG(ra, code[2]).AsObjectClosure();
 	if(TJS_GET_VM_REG(ra, code[3]).Type() != tvtInteger)
