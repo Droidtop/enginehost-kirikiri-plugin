@@ -255,7 +255,19 @@ void TJSThrowFrom_tjs_error(tjs_error hr, const tjs_char *name)
 	case TJS_E_BADPARAMCOUNT:
 		TJS_eTJSError(TJSBadParamCount);
 	case TJS_E_INVALIDTYPE:
+	  {
+		// The member's name is the one thing a person reading the error
+		// needs and the one thing the stock message leaves out.
+		if(name)
+		{
+			ttstr str(TJSInvalidType);
+			str += TJS_W(" (");
+			str += name;
+			str += TJS_W(")");
+			TJS_eTJSError(str);
+		}
 		TJS_eTJSError(TJSInvalidType);
+	  }
 	case TJS_E_ACCESSDENYED:
 		TJS_eTJSError(TJSAccessDenyed);
 	case TJS_E_INVALIDOBJECT:
