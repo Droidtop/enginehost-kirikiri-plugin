@@ -272,8 +272,13 @@ bool           ScriptsEvalOverride::outputErrorLogOnEval = true;
 NCB_ATTACH_FUNCTION(eval,            Scripts, ScriptsEvalOverride::eval);
 NCB_ATTACH_FUNCTION(setEvalErrorLog, Scripts, ScriptsEvalOverride::setEvalErrorLog);
 
-NCB_PRE_REGIST_CALLBACK(ScriptsEvalOverride::Regist);
-NCB_PRE_UNREGIST_CALLBACK(ScriptsEvalOverride::UnRegist);
+// NCB_PRE_REGIST_CALLBACK token-pastes the callback name into an
+// identifier, which breaks on a qualified (Class::method) name -- wrap in
+// plain file-scope functions instead.
+static void ScriptsEvalOverrideRegist()   { ScriptsEvalOverride::Regist(); }
+static void ScriptsEvalOverrideUnRegist() { ScriptsEvalOverride::UnRegist(); }
+NCB_PRE_REGIST_CALLBACK(ScriptsEvalOverrideRegist);
+NCB_PRE_UNREGIST_CALLBACK(ScriptsEvalOverrideUnRegist);
 
 // ---------------------------------------------------------------------
 // System.breathe/isBreathing/clearGraphicCache/getAboutString/getCPUType:
