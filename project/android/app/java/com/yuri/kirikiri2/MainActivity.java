@@ -6,30 +6,38 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import org.json.JSONObject;
 import org.tvp.kirikiri2.KR2Activity;
 
 /**
  * The enginehost wrapper's activity. Kirikiroid2 is a touch and keyboard
- * application; a handheld drives it with a gamepad, so this activity
- * translates the pad two ways:
+ * application; a handheld drives it with a gamepad, and what each pad button
+ * means is the person's choice in Enginehost's controller settings, handed
+ * to this activity as the CONTROLLER_BINDINGS extra (action id -> pad key or
+ * axis). This class only decides what an action means to a KiriKiri game:
  *
- * Keys. Buttons become the keys a KAG game is driven by (A advance, B
- * cancel/menu, X skip, Y space, L1/R1 backlog, Start menu, Select system
- * menu). The D-pad already arrives as DPAD_* keys.
+ * Keys. confirm/cancel/menu/skip/auto/history/page_* become the keyboard
+ * keys a KAG game is driven by; up/down/left/right become the D-pad keys.
  *
- * Pointer. Many KiriKiri menus, title screens first of all, respond only to
- * the mouse, never to keys. The left stick therefore moves a cursor drawn
- * over the game, and while the cursor is shown A presses and releases a
- * touch at the cursor instead of sending Enter. The cursor hides after a few
- * seconds without stick input, and the buttons go back to being keys.
+ * Pointer. Many KiriKiri menus, title screens first of all, answer only the
+ * mouse. The stick bound to left_x/left_y therefore moves a cursor drawn over
+ * the game, and while the cursor is shown the confirm action presses and
+ * releases a touch at the cursor instead of sending Enter. The cursor hides
+ * after a few seconds without stick input and confirm is a key again.
  */
 public class MainActivity extends KR2Activity {
+	private static final String TAG = "EnginehostKiriKiri";
+
 	static {
 		// Standalone, Cocos2dx loads the engine from the manifest's
 		// android.app.lib_name meta-data. Under enginehost this activity is
@@ -46,6 +54,8 @@ public class MainActivity extends KR2Activity {
 	private static final long FRAME_MS = 16;
 
 	private final Handler handler = new Handler(Looper.getMainLooper());
+	private final Map<Integer, String> padKeyActions = new HashMap<>();
+	private final Map<Integer, String> padAxisActions = new HashMap<>();
 	private FrameLayout cursorLayer;
 	private View cursorView;
 	private float cursorX = -1f, cursorY = -1f;
@@ -100,6 +110,7 @@ public class MainActivity extends KR2Activity {
 
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
+		loadControllerBindings(getIntent().getStringExtra("dev.enginehost.runtime.CONTROLLER_BINDINGS"));
 		super.onCreate(savedInstanceState);
 		// A layer over the game for the cursor. Drawn, not an asset: a ring
 		// with a translucent fill, sized for a handheld screen.
@@ -118,18 +129,52 @@ public class MainActivity extends KR2Activity {
 				ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 	}
 
+	private void loadControllerBindings(String json) {
+		padKeyActions.clear();
+		padAxisActions.clear();
+		if (json == null) {
+			Log.w(TAG, "No controller map from enginehost; the pad will do nothing");
+			return;
+		}
+		try {
+			JSONObject map = new JSONObject(json);
+			Iterator<String> actions = map.keys();
+			while (actions.hasNext()) {
+				String action = actions.next();
+				JSONObject binding = map.getJSONObject(action);
+				if ("key".equals(binding.getString("type"))) {
+					padKeyActions.put(binding.getInt("code"), action);
+				} else if ("axis".equals(binding.getString("type"))) {
+					padAxisActions.put(binding.getInt("axis"), action);
+				}
+			}
+			Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, " + padAxisActions.size() + " axes");
+		} catch (Exception error) {
+			Log.w(TAG, "Ignoring an unreadable controller map: " + error);
+		}
+	}
+
 	private int dp(int value) {
 		return Math.round(value * getResources().getDisplayMetrics().density);
+	}
+
+	private static boolean isPad(InputDevice device) {
+		if (device == null) return false;
+		int sources = device.getSources();
+		return (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+				|| (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
 	}
 
 	// ---------------------------------------------------------------- pointer
 
 	@Override
 	public boolean dispatchGenericMotionEvent(MotionEvent event) {
-		if ((event.getSource() & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
-				&& event.getAction() == MotionEvent.ACTION_MOVE) {
-			float x = event.getAxisValue(MotionEvent.AXIS_X);
-			float y = event.getAxisValue(MotionEvent.AXIS_Y);
+		if (isPad(event.getDevice()) && event.getAction() == MotionEvent.ACTION_MOVE) {
+			float x = 0f, y = 0f;
+			for (Map.Entry<Integer, String> bound : padAxisActions.entrySet()) {
+				if ("left_x".equals(bound.getValue())) x = event.getAxisValue(bound.getKey());
+				if ("left_y".equals(bound.getValue())) y = event.getAxisValue(bound.getKey());
+			}
 			boolean wasMoving = stickX != 0f || stickY != 0f;
 			stickX = Math.abs(x) > STICK_DEADZONE ? x : 0f;
 			stickY = Math.abs(y) > STICK_DEADZONE ? y : 0f;
@@ -181,8 +226,15 @@ public class MainActivity extends KR2Activity {
 
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
-		int keyCode = event.getKeyCode();
-		if (keyCode == KeyEvent.KEYCODE_BUTTON_A && cursorShown) {
+		if (!isPad(event.getDevice())) {
+			return super.dispatchKeyEvent(event);
+		}
+		String action = padKeyActions.get(event.getKeyCode());
+		if (action == null) {
+			Log.d(TAG, "Pad key " + KeyEvent.keyCodeToString(event.getKeyCode()) + " is not bound to anything");
+			return true;
+		}
+		if ("confirm".equals(action) && cursorShown) {
 			if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
 				clickHeld = true;
 				lastStickInput = SystemClock.uptimeMillis();
@@ -195,26 +247,31 @@ public class MainActivity extends KR2Activity {
 			}
 			return true;
 		}
-		int translated = gamepadToKey(keyCode);
-		if (translated == KeyEvent.KEYCODE_UNKNOWN) {
-			return super.dispatchKeyEvent(event);
+		int key = keyForAction(action);
+		if (key == KeyEvent.KEYCODE_UNKNOWN) {
+			return true; // an action this engine has no use for
 		}
 		KeyEvent mapped = new KeyEvent(event.getDownTime(), event.getEventTime(), event.getAction(),
-				translated, event.getRepeatCount(), event.getMetaState(), event.getDeviceId(),
+				key, event.getRepeatCount(), event.getMetaState(), event.getDeviceId(),
 				event.getScanCode(), event.getFlags(), event.getSource());
 		return super.dispatchKeyEvent(mapped);
 	}
 
-	private static int gamepadToKey(int keyCode) {
-		switch (keyCode) {
-			case KeyEvent.KEYCODE_BUTTON_A: return KeyEvent.KEYCODE_ENTER;
-			case KeyEvent.KEYCODE_BUTTON_B: return KeyEvent.KEYCODE_ESCAPE;
-			case KeyEvent.KEYCODE_BUTTON_X: return KeyEvent.KEYCODE_CTRL_LEFT;
-			case KeyEvent.KEYCODE_BUTTON_Y: return KeyEvent.KEYCODE_SPACE;
-			case KeyEvent.KEYCODE_BUTTON_L1: return KeyEvent.KEYCODE_PAGE_UP;
-			case KeyEvent.KEYCODE_BUTTON_R1: return KeyEvent.KEYCODE_PAGE_DOWN;
-			case KeyEvent.KEYCODE_BUTTON_START: return KeyEvent.KEYCODE_ESCAPE;
-			case KeyEvent.KEYCODE_BUTTON_SELECT: return KeyEvent.KEYCODE_MENU;
+	/** What an Enginehost action means to a KAG game, as the keyboard key it reads. */
+	private static int keyForAction(String action) {
+		switch (action) {
+			case "up": return KeyEvent.KEYCODE_DPAD_UP;
+			case "down": return KeyEvent.KEYCODE_DPAD_DOWN;
+			case "left": return KeyEvent.KEYCODE_DPAD_LEFT;
+			case "right": return KeyEvent.KEYCODE_DPAD_RIGHT;
+			case "confirm": return KeyEvent.KEYCODE_ENTER;
+			case "cancel": return KeyEvent.KEYCODE_ESCAPE;
+			case "menu": return KeyEvent.KEYCODE_ESCAPE;
+			case "skip": return KeyEvent.KEYCODE_CTRL_LEFT;
+			case "auto": return KeyEvent.KEYCODE_SPACE;
+			case "history": return KeyEvent.KEYCODE_PAGE_UP;
+			case "page_previous": return KeyEvent.KEYCODE_PAGE_UP;
+			case "page_next": return KeyEvent.KEYCODE_PAGE_DOWN;
 			default: return KeyEvent.KEYCODE_UNKNOWN;
 		}
 	}
