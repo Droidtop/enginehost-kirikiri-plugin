@@ -191,10 +191,25 @@ NCB_REGISTER_CLASS(Motion) {
  * different bit -- bit 1 is the assumption. Nothing here acts on the flags;
  * they exist so the scripts can name and combine them. Whoever implements
  * real playback must confirm both values first.
+ *
+ * motion.tjs wraps Plugins.link("motionplayer.dll") in a bare try/catch, so a
+ * throw out of here would be swallowed and the constants would silently read
+ * as void (and coerce to 0, which this player would happily accept). Say so in
+ * the log instead, so a device report shows it rather than hiding it.
  */
 static void PostRegistCallback()
 {
-	TVPExecuteExpression(TJS_W("Motion.PlayFlagForce = 1"));
-	TVPExecuteExpression(TJS_W("Motion.PlayFlagStealth = 2"));
+	static const tjs_char *assignments[] = {
+		TJS_W("Motion.PlayFlagForce = 1"),
+		TJS_W("Motion.PlayFlagStealth = 2"),
+	};
+	for (const tjs_char *expr : assignments) {
+		try {
+			TVPExecuteExpression(ttstr(expr));
+		} catch (...) {
+			TVPAddLog(ttstr(TJS_W("motionplayer: could not set a play flag (")) +
+			          ttstr(expr) + TJS_W("); motions will be requested with flags 0"));
+		}
+	}
 }
 NCB_POST_REGIST_CALLBACK(PostRegistCallback);
