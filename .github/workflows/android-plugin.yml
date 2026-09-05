@@ -75,7 +75,19 @@ jobs:
       - name: Keep the unstripped native library for symbolizing crashes
         run: |
           mkdir -p build/symbols
-          find /build_android project/android -path '*cmake*' -path '*/obj/arm64-v8a/*' -name '*.so' -exec cp {} build/symbols/ \; 2>/dev/null || true
+          # Gradle's buildDir is redirected to build_android/ at the repo root
+          # and the CMake objects land under its intermediates/cxx tree (path
+          # segment "cxx", not "cmake"), so the previous find matched nothing
+          # and the artifact was always empty. Search both the build output and
+          # the .cxx staging directory, and keep only libraries that still have
+          # a symbol table -- the copies under intermediates are stripped.
+          readelf="$(find "${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk}"             -name llvm-readelf -path '*linux-x86_64*' 2>/dev/null | head -1)"
+          test -n "$readelf"
+          while IFS= read -r so; do
+            if "$readelf" -S "$so" | grep -q '\.symtab'; then
+              cp "$so" build/symbols/
+            fi
+          done < <(find build_android project/android/app/.cxx -name '*.so' -path '*arm64-v8a*' 2>/dev/null)
           ls -la build/symbols
       - uses: actions/upload-artifact@v4
         with:
