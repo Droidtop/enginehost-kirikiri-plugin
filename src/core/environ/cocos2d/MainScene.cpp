@@ -2,6 +2,7 @@
 #include "cocos2d.h"
 #include "cocos-ext.h"
 #include "tjsCommHead.h"
+#include "DebugIntf.h"
 #include "StorageIntf.h"
 #include "EventIntf.h"
 #include "SysInitImpl.h"
@@ -60,6 +61,8 @@ static bool _virutalMouseMode = false;
 static bool _mouseMoved, _mouseClickedDown;
 static tjs_uint8 _scancode[0x200];
 static tjs_uint16 _keymap[0x200];
+/** How many key events still get a trace line (see onKeyPressed). */
+static int _keyTraceBudget = 40;
 static Label *_fpsLabel = nullptr;
 
 #include "CCKeyCodeConv.h"
@@ -1945,6 +1948,17 @@ void TVPMainScene::onKeyPressed(EventKeyboard::KeyCode keyCode, Event* event) {
 		break;
 	}
 	unsigned int code = TVPConvertKeyCodeToVKCode(keyCode);
+	// The last hop before a game sees a key. Traced for the first few key
+	// events of a session so one run says whether a key died here -- no VK
+	// code for it, or no window layer to give it to -- rather than somewhere
+	// earlier in the wrapper.
+	if (_keyTraceBudget > 0) {
+		--_keyTraceBudget;
+		char trace[128];
+		snprintf(trace, sizeof(trace), "key down: cocos %d -> VK %u, window layer %s",
+			(int)keyCode, code, _currentWindowLayer ? "yes" : "no");
+		TVPAddLog(ttstr(std::string(trace)));
+	}
 	if (!code || code >= 0x200) return;
 	code = _keymap[code];
 

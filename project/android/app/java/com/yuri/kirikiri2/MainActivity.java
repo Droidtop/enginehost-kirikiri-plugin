@@ -111,6 +111,7 @@ public class MainActivity extends KR2Activity {
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		loadControllerBindings(getIntent().getStringExtra("dev.enginehost.runtime.CONTROLLER_BINDINGS"));
+		logInputDevices();
 		super.onCreate(savedInstanceState);
 		// A layer over the game for the cursor. Drawn, not an asset: a ring
 		// with a translucent fill, sized for a handheld screen.
@@ -163,6 +164,21 @@ public class MainActivity extends KR2Activity {
 		int sources = device.getSources();
 		return (sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
 				|| (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+	}
+
+	/**
+	 * Every input device this activity can see, once, at startup. The first
+	 * question about a pad that does nothing is whether the activity is told
+	 * about it at all, and this answers it without a person having to press
+	 * anything.
+	 */
+	private void logInputDevices() {
+		for (int id : InputDevice.getDeviceIds()) {
+			InputDevice device = InputDevice.getDevice(id);
+			if (device == null) continue;
+			Log.i(TAG, "Input device " + id + " \"" + device.getName() + "\" sources=0x"
+					+ Integer.toHexString(device.getSources()) + " pad=" + isPad(device));
+		}
 	}
 
 	// ---------------------------------------------------------------- pointer
@@ -227,20 +243,42 @@ public class MainActivity extends KR2Activity {
 		if (action == MotionEvent.ACTION_DOWN) clickDownTime = now;
 		MotionEvent touch = MotionEvent.obtain(clickDownTime, now, action, cursorX, cursorY, 0);
 		touch.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-		super.dispatchTouchEvent(touch);
+		boolean handled = super.dispatchTouchEvent(touch);
 		touch.recycle();
+		if (action != MotionEvent.ACTION_MOVE) {
+			Log.d(TAG, "Touch " + (action == MotionEvent.ACTION_DOWN ? "down" : "up")
+					+ " at " + cursorX + "," + cursorY + " handled=" + handled);
+		}
 	}
 
 	// ------------------------------------------------------------------- keys
 
+	private int keyLogBudget = 60;
+
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
-		if (!isPad(event.getDevice())) {
+		boolean pad = isPad(event.getDevice());
+		if (keyLogBudget > 0) {
+			keyLogBudget--;
+			Log.d(TAG, "Key " + KeyEvent.keyCodeToString(event.getKeyCode())
+					+ (event.getAction() == KeyEvent.ACTION_DOWN ? " down" : " up")
+					+ " source=0x" + Integer.toHexString(event.getSource()) + " pad=" + pad
+					+ " action=" + padKeyActions.get(event.getKeyCode()) + " cursor=" + cursorShown);
+		}
+		if (!pad) {
 			return super.dispatchKeyEvent(event);
+		}
+		// Any pad activity brings the cursor back, not only the stick: on a KAG
+		// title screen the mouse is the only thing that acts, so a person who
+		// presses a button should get the pointer they need rather than nothing.
+		if (event.getAction() == KeyEvent.ACTION_DOWN) {
+			lastStickInput = SystemClock.uptimeMillis();
+			showCursor();
+			handler.removeCallbacks(hideCursor);
+			handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
 		}
 		String action = padKeyActions.get(event.getKeyCode());
 		if (action == null) {
-			Log.d(TAG, "Pad key " + KeyEvent.keyCodeToString(event.getKeyCode()) + " is not bound to anything");
 			return true;
 		}
 		if ("confirm".equals(action) && cursorShown) {
@@ -262,8 +300,12 @@ public class MainActivity extends KR2Activity {
 		}
 		KeyEvent mapped = new KeyEvent(event.getDownTime(), event.getEventTime(), event.getAction(),
 				key, event.getRepeatCount(), event.getMetaState(), event.getDeviceId(),
-				event.getScanCode(), event.getFlags(), event.getSource());
-		return super.dispatchKeyEvent(mapped);
+				event.getScanCode(), event.getFlags(), InputDevice.SOURCE_KEYBOARD);
+		boolean handled = super.dispatchKeyEvent(mapped);
+		if (keyLogBudget > 0) {
+			Log.d(TAG, "Injected " + KeyEvent.keyCodeToString(key) + " for " + action + ", handled=" + handled);
+		}
+		return handled;
 	}
 
 	/** What an Enginehost action means to a KAG game, as the keyboard key it reads. */

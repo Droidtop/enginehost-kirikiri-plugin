@@ -5,6 +5,7 @@
 #include "cocos2d/MainScene.h"
 #include "ConfigManager/GlobalConfigManager.h"
 #include "Application.h"
+#include <android/log.h>
 
 /*******************************************************************************
                  Functions called by JNI
@@ -190,8 +191,16 @@ extern "C" {
 		case 114 /* KEYCODE_CTRL_RIGHT */ : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_RIGHT_CTRL; break;
 		case 92  /* KEYCODE_PAGE_UP */    : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_UP; break;
 		case 93  /* KEYCODE_PAGE_DOWN */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_DOWN; break;
-		default: return JNI_FALSE;
+		default:
+			// A key nothing here understands is dropped silently otherwise,
+			// which is indistinguishable from the pad not working.
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"nativeKeyAction: keycode %d is not one this engine reads", (int)keyCode);
+			return JNI_FALSE;
 		}
+		__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+			"nativeKeyAction: keycode %d -> cocos key %d, %s", (int)keyCode, (int)pKeyCode,
+			isPress ? "press" : "release");
 
 		Android_PushEvents([pKeyCode, isPress](){
 			cocos2d::EventKeyboard event(pKeyCode, isPress);

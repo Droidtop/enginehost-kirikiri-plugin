@@ -101,6 +101,16 @@ int TVPConvertKeyCodeToVKCode(cocos2d::EventKeyboard::KeyCode keyCode)
 	case cocos2d::EventKeyboard::KeyCode::KEY_UP_ARROW:	return VK_UP;
 	case cocos2d::EventKeyboard::KeyCode::KEY_KP_DOWN:
 	case cocos2d::EventKeyboard::KeyCode::KEY_DOWN_ARROW:	return VK_DOWN;
+	// Android's D-pad and Enter, which is what a gamepad sends (and what the
+	// enginehost wrapper translates a pad's buttons into). Upstream mapped
+	// these to nothing, so onKeyPressed dropped them before any window layer
+	// saw them and a pad could not drive a game at all.
+	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_LEFT:	return VK_LEFT;
+	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_RIGHT:	return VK_RIGHT;
+	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_UP:	return VK_UP;
+	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_DOWN:	return VK_DOWN;
+	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_CENTER:	return VK_RETURN;
+	case cocos2d::EventKeyboard::KeyCode::KEY_ENTER:	return VK_RETURN;
 	case cocos2d::EventKeyboard::KeyCode::KEY_NUM_LOCK:	return VK_NUMLOCK;
 	case cocos2d::EventKeyboard::KeyCode::KEY_KP_PLUS:	return VK_ADD;
 	case cocos2d::EventKeyboard::KeyCode::KEY_KP_MINUS:	return VK_SUBTRACT;
@@ -177,12 +187,6 @@ int TVPConvertKeyCodeToVKCode(cocos2d::EventKeyboard::KeyCode keyCode)
 	case cocos2d::EventKeyboard::KeyCode::KEY_YEN:
 	case cocos2d::EventKeyboard::KeyCode::KEY_MIDDLE_DOT:
 	case cocos2d::EventKeyboard::KeyCode::KEY_SEARCH:
-	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_LEFT:
-	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_RIGHT:
-	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_UP:
-	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_DOWN:
-	case cocos2d::EventKeyboard::KeyCode::KEY_DPAD_CENTER:
-	case cocos2d::EventKeyboard::KeyCode::KEY_ENTER:
 	default: return 0;
 	}
 #undef CASE
