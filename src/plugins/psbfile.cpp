@@ -19,10 +19,18 @@
  * mapping onto TJS values is the part that matters here and has no counterpart
  * there.
  *
- * What is not implemented: the `mdf` compressed container and header/body
- * encryption. Those are how PSBs are shipped as game assets, not how a blob
- * inside the game's own database is written, and a file that is one says so
- * in the log rather than being half-parsed.
+ * The blobs in Noble Works' scene database turned out to be `mdf`-wrapped
+ * after all -- that is M2's compressed shell, "mdf\0" plus the decompressed
+ * length plus a zlib stream -- so MdfInflate() below unwraps one before the
+ * parse. The earlier note here, that mdf was only a way assets are shipped
+ * and not how the game's own database writes a blob, was wrong; the console
+ * said so on build 73.
+ *
+ * What is still not implemented: the encrypted variants. M2 XORs either the
+ * PSB header fields or the whole mdf payload with an MT19937 keystream taken
+ * from a per-game key string, and no such key is known for anything we run.
+ * A file that looks encrypted says so rather than being fed to inflate or to
+ * the parser as garbage.
  */
 #include "ncbind/ncbind.hpp"
 #include "MsgIntf.h"
@@ -31,6 +39,8 @@
 #include <string>
 #include <vector>
 #include <cstring>
+
+#include <zlib.h>
 
 #define NCB_MODULE_NAME TJS_W("psbfile.dll")
 
@@ -134,6 +144,69 @@ private:
 	size_t pos;
 };
 
+/** True if this octet is an mdf shell rather than a bare PSB. */
+bool IsMdf(const tjs_uint8 *b, size_t size)
+{
+	return size >= 4 && b[0] == 'm' && b[1] == 'd' && b[2] == 'f' && b[3] == 0;
+}
+
+/** A bound on the decompressed size a shell may claim, so a damaged or
+ *  hostile length field cannot ask for an arbitrary allocation. The scene
+ *  blobs are kilobytes; a whole E-mote motion is megabytes. */
+const tjs_uint32 MaxInflatedSize = 128u * 1024u * 1024u;
+
+/**
+ * Unwrap an mdf shell: the 4-byte signature, a little-endian uint32 giving the
+ * decompressed length, then a zlib stream. (M2's writer emits the deflate data
+ * and appends the Adler-32 itself, which is byte for byte a zlib stream, so it
+ * inflates as one rather than needing the raw-deflate path FreeMote takes.)
+ * The claimed length is trusted only as far as it is checked against what
+ * inflate actually produced.
+ */
+std::vector<tjs_uint8> MdfInflate(const tjs_uint8 *b, size_t size)
+{
+	if (size < 10) Fail(TJS_W("psbfile: this mdf is too short to hold a zlib stream"));
+
+	tjs_uint32 expanded = (tjs_uint32)b[4] | ((tjs_uint32)b[5] << 8) |
+	                      ((tjs_uint32)b[6] << 16) | ((tjs_uint32)b[7] << 24);
+
+	// A zlib header is a compression method of 8 with a check byte that makes
+	// the pair a multiple of 31. If that does not hold, the payload is the
+	// MT19937-encrypted variant (or not an mdf at all), and saying so is far
+	// more use than an inflate error would be.
+	tjs_uint32 cmf = b[8], flg = b[9];
+	if ((cmf & 0x0F) != 8 || ((cmf << 8) + flg) % 31 != 0) {
+		Fail(TJS_W("psbfile: this mdf is not plain zlib, so it is the encrypted variant, for which no key is known"));
+	}
+
+	if (expanded == 0) Fail(TJS_W("psbfile: this mdf says it decompresses to nothing"));
+	if (expanded > MaxInflatedSize) Fail(TJS_W("psbfile: this mdf claims an unreasonable decompressed size"));
+
+	std::vector<tjs_uint8> out((size_t)expanded);
+
+	z_stream zs;
+	memset(&zs, 0, sizeof(zs));
+	zs.next_in   = (Bytef *)(b + 8);
+	zs.avail_in  = (uInt)(size - 8);
+	zs.next_out  = (Bytef *)&out[0];
+	zs.avail_out = (uInt)expanded;
+	if (inflateInit(&zs) != Z_OK) Fail(TJS_W("psbfile: zlib would not start on this mdf"));
+	int rc = inflate(&zs, Z_FINISH);
+	uLong produced = zs.total_out;
+	inflateEnd(&zs);
+
+	// With an output buffer sized exactly to the claimed length, Z_FINISH ends
+	// on Z_STREAM_END normally, but on Z_OK or Z_BUF_ERROR if the stream has
+	// trailing bytes left over. What settles it is how many bytes came out.
+	if (rc != Z_STREAM_END && rc != Z_OK && rc != Z_BUF_ERROR) {
+		Fail(TJS_W("psbfile: this mdf's zlib stream is damaged"));
+	}
+	if ((tjs_uint32)produced != expanded) {
+		Fail(TJS_W("psbfile: this mdf decompressed to a different size than its header claims"));
+	}
+	return out;
+}
+
 typedef std::vector<tjs_uint64> UIntArray;
 
 /**
@@ -223,8 +296,10 @@ tTJSVariant PsbParser::Parse()
 	if (r.Size() < 40) Fail(TJS_W("psbfile: too short to be a PSB"));
 	const tjs_uint8 *b = r.Base();
 	if (!(b[0] == 'P' && b[1] == 'S' && b[2] == 'B' && b[3] == 0)) {
-		if (b[0] == 'm' && b[1] == 'd' && b[2] == 'f' && b[3] == 0) {
-			Fail(TJS_W("psbfile: this is an mdf (compressed) PSB, which is not supported"));
+		// An mdf shell is unwrapped before the parser is handed anything, so
+		// reaching here with one means a shell inside a shell.
+		if (IsMdf(b, r.Size())) {
+			Fail(TJS_W("psbfile: this mdf unwrapped to another mdf, which is not a PSB"));
 		}
 		Fail(TJS_W("psbfile: not a PSB (no \"PSB\\0\" signature)"));
 	}
@@ -402,7 +477,20 @@ public:
 		if (!o || !o->GetLength()) {
 			TVPThrowExceptionMessage(TJS_W("psbfile: PSBFile was given an empty octet"));
 		}
-		PsbParser parser(o->GetData(), (size_t)o->GetLength());
+		const tjs_uint8 *data = o->GetData();
+		size_t size = (size_t)o->GetLength();
+
+		// The scene rows are mdf-wrapped, so this is the ordinary path and not
+		// a special case. The inflated bytes have to outlive the parse, hence
+		// the local buffer rather than a temporary.
+		std::vector<tjs_uint8> inflated;
+		if (IsMdf(data, size)) {
+			inflated = MdfInflate(data, size);
+			data = &inflated[0];
+			size = inflated.size();
+		}
+
+		PsbParser parser(data, size);
 		root = parser.Parse();
 	}
 
