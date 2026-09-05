@@ -36,6 +36,10 @@ target_compile_options(${PROJECT_NAME} PUBLIC
     -fPIC -fexceptions -std=c++14 -fvisibility=hidden
 )
 
+# sqlite3.dll's Sqlite/SqliteStatement classes are backed by the amalgamation
+# in thirdparty/sqlite3, which is a separate target because it is C, not C++.
+target_link_libraries(${PROJECT_NAME} PUBLIC krkr2sqlite3)
+
 target_compile_definitions(${PROJECT_NAME} PUBLIC
     -D__STDC_CONSTANT_MACROS -DTJS_TEXT_OUT_CRLF 
     -DTJS_TEXT_OUT_CRLF
