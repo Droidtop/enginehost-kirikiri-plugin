@@ -161,7 +161,7 @@ tjs_uint32 tTVPMorphingTransHandler::SamplePixel(iTVPScanLineProvider *src, tjs_
 	if(u < 0) u = 0; else if(u >= Width)  u = Width  - 1;
 	if(v < 0) v = 0; else if(v >= Height) v = Height - 1;
 	const tjs_uint32 *line;
-	if(TJS_FAILED(src->GetScanLine(v, (const void**)&line))) return 0;
+	if(TJS_FAILED(TVPSLPGetScanLine(src, v, (const void**)&line))) return 0;
 	return line[u];
 }
 //---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ void tTVPMorphingTransHandler::RasterizePatch(tTVPDivisibleData *data, tjs_int i
 		tjs_int n = py - data->Top;
 
 		tjs_uint32 *dest;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return;
 		// 絶対列 c は dp[c] に書き込む (scanline.cpp と同じ流儀)
 		tjs_uint32 *dp = dest + data->DestLeft - data->Left;
@@ -239,9 +239,9 @@ tjs_error TJS_INTF_METHOD tTVPMorphingTransHandler::Process(tTVPDivisibleData *d
 			tjs_int y = data->Top + n;
 			tjs_uint32 *dest;
 			const tjs_uint32 *sp;
-			if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+			if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 				return TJS_E_FAIL;
-			if(TJS_FAILED(src->GetScanLine(y, (const void**)&sp)))
+			if(TJS_FAILED(TVPSLPGetScanLine(src, y, (const void**)&sp)))
 				return TJS_E_FAIL;
 			tjs_uint32 *dp = dest + data->DestLeft - data->Left;
 			for(tjs_int c = data->Left; c < data->Left + data->Width; c++)
@@ -259,11 +259,11 @@ tjs_error TJS_INTF_METHOD tTVPMorphingTransHandler::Process(tTVPDivisibleData *d
 		tjs_uint32 *dest;
 		const tjs_uint32 *src1;
 		const tjs_uint32 *src2;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&src1)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&src1)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&src2)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&src2)))
 			return TJS_E_FAIL;
 		tjs_uint32 *dp = dest + data->DestLeft - data->Left;
 		for(tjs_int c = data->Left; c < data->Left + data->Width; c++)

@@ -296,7 +296,7 @@ tjs_error TJS_INTF_METHOD tTVPSpinFadeTransHandler::Process(tTVPDivisibleData *d
 		const tjs_int y = data->Top + n;
 
 		tjs_uint32 *dest;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
 
 		// dest の絶対列 c は dp[c] に書き込む (scanline.cpp と同じ基点)
@@ -314,7 +314,7 @@ tjs_error TJS_INTF_METHOD tTVPSpinFadeTransHandler::Process(tTVPDivisibleData *d
 				if(srow >= 0 && srow < H)
 				{
 					const tjs_uint32 *src1;
-					if(TJS_FAILED(data->Src1->GetScanLine(srow, (const void**)&src1)))
+					if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, srow, (const void**)&src1)))
 						return TJS_E_FAIL;
 					dp[c] = src1[ Col1[c] ];
 				}
@@ -327,7 +327,7 @@ tjs_error TJS_INTF_METHOD tTVPSpinFadeTransHandler::Process(tTVPDivisibleData *d
 				if(srow >= 0 && srow < H)
 				{
 					const tjs_uint32 *src2;
-					if(TJS_FAILED(data->Src2->GetScanLine(srow, (const void**)&src2)))
+					if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, srow, (const void**)&src2)))
 						return TJS_E_FAIL;
 					dp[c] = src2[ Col2[c] ];
 				}

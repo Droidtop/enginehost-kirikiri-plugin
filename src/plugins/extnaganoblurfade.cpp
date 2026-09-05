@@ -149,7 +149,7 @@ void tTVPBlurFadeTransHandler::BoxBlur(
 	for(tjs_int y = 0; y < H; y++)
 	{
 		const tjs_uint32 *in;
-		if(TJS_FAILED(src->GetScanLine(y, (const void**)&in))) return;
+		if(TJS_FAILED(TVPSLPGetScanLine(src, y, (const void**)&in))) return;
 		tjs_uint32 *out = Scratch + y * W;
 
 		if(rx <= 0)
@@ -250,7 +250,7 @@ void tTVPBlurFadeTransHandler::BilinearBlur(
 	for(tjs_int y = 0; y < H; y++)
 	{
 		const tjs_uint32 *in;
-		if(TJS_FAILED(src->GetScanLine(y, (const void**)&in))) return;
+		if(TJS_FAILED(TVPSLPGetScanLine(src, y, (const void**)&in))) return;
 		tjs_uint32 *out = Scratch + y * W;
 
 		if(rx <= 0) { for(tjs_int x = 0; x < W; x++) out[x] = in[x]; continue; }
@@ -353,7 +353,7 @@ tjs_error TJS_INTF_METHOD tTVPBlurFadeTransHandler::Process(tTVPDivisibleData *d
 		tjs_int y = data->Top + n;
 
 		tjs_uint32 *dest;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
 
 		// dest の絶対列 c は dp[c] に書き込む (scanline.cpp と同じ基点)
@@ -363,14 +363,14 @@ tjs_error TJS_INTF_METHOD tTVPBlurFadeTransHandler::Process(tTVPDivisibleData *d
 		if(alpha == 0)
 		{
 			const tjs_uint32 *src1;
-			if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&src1))) return TJS_E_FAIL;
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&src1))) return TJS_E_FAIL;
 			for(tjs_int c = left; c < right; c++) dp[c] = src1[c];
 			continue;
 		}
 		if(alpha == 255)
 		{
 			const tjs_uint32 *src2;
-			if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&src2))) return TJS_E_FAIL;
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&src2))) return TJS_E_FAIL;
 			for(tjs_int c = left; c < right; c++) dp[c] = src2[c];
 			continue;
 		}
@@ -379,9 +379,9 @@ tjs_error TJS_INTF_METHOD tTVPBlurFadeTransHandler::Process(tTVPDivisibleData *d
 		const tjs_uint32 *s1;
 		const tjs_uint32 *s2;
 		if(useBlur1) s1 = Buffer1 + y * Width;
-		else { if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&s1))) return TJS_E_FAIL; }
+		else { if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&s1))) return TJS_E_FAIL; }
 		if(useBlur2) s2 = Buffer2 + y * Width;
-		else { if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&s2))) return TJS_E_FAIL; }
+		else { if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&s2))) return TJS_E_FAIL; }
 
 		// 成分ごとに src1 -> src2 を alpha で線形補間 (アルファ含む)
 		for(tjs_int c = left; c < right; c++)

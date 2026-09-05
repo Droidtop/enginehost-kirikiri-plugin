@@ -443,7 +443,7 @@ tjs_error TJS_INTF_METHOD tTVPMultiRippleTransHandler::Process(tTVPDivisibleData
 		const tjs_int y = data->Top + n;
 
 		tjs_uint32 *dest;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 		{ result = TJS_E_FAIL; break; }
 		tjs_uint32 *dp = dest + data->DestLeft - data->Left;
 
@@ -476,14 +476,14 @@ tjs_error TJS_INTF_METHOD tTVPMultiRippleTransHandler::Process(tTVPDivisibleData
 			const tjs_uint32 *s1 = s1rows[row];
 			if(!s1)
 			{
-				if(TJS_FAILED(data->Src1->GetScanLine(row, (const void**)&s1)))
+				if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, row, (const void**)&s1)))
 				{ result = TJS_E_FAIL; break; }
 				s1rows[row] = s1;
 			}
 			const tjs_uint32 *s2 = s2rows[row];
 			if(!s2)
 			{
-				if(TJS_FAILED(data->Src2->GetScanLine(row, (const void**)&s2)))
+				if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, row, (const void**)&s2)))
 				{ result = TJS_E_FAIL; break; }
 				s2rows[row] = s2;
 			}

@@ -86,11 +86,11 @@ tjs_error TJS_INTF_METHOD tTVPScanLineTransHandler::Process(tTVPDivisibleData *d
 		tjs_uint32 *dest;
 		const tjs_uint32 *src1;
 		const tjs_uint32 *src2;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&src1)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&src1)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&src2)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&src2)))
 			return TJS_E_FAIL;
 
 		// dest の絶対列 c は dp[c] に書き込む

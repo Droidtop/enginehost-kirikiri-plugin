@@ -51,10 +51,45 @@
 //   確信度: 中。scanline の base+line*pitch は full-size レイヤ前提で、元コードに
 //   あった imageLeft/imageTop 補正 (FUN_10001f00) は省略している (要実機確認)。
 //---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+// tTVPImageWipeLayerTexture
+//   tTVPImageWipeLayerScanLineProvider's GetTexture()/GetTextureForRender()
+//   backing object. iTVPScanLineProvider still requires these two methods
+//   (only its CPU GetPixelFormat/GetPitchBytes/GetScanLine/GetScanLineForWrite
+//   were disabled -- see extnaganocommon.h's TVPSLP* shim), so this forwards
+//   straight back to the owning provider's own TJS-property-based pixel
+//   access (mainImageBuffer/mainImageBufferForWrite via PropGet) rather than
+//   snapshotting into a real GPU texture -- the "rule" layer's pixels can
+//   keep changing frame to frame, and PropGet is already how the original
+//   decompiled plugin read them.
+//---------------------------------------------------------------------------
+class tTVPImageWipeLayerScanLineProvider;
+class tTVPImageWipeLayerTexture : public iTVPTexture2D
+{
+	tTVPImageWipeLayerScanLineProvider *Owner; // owns this object; not AddRef'd
+	bool ForWrite;
+public:
+	tTVPImageWipeLayerTexture(tjs_int w, tjs_int h,
+			tTVPImageWipeLayerScanLineProvider *owner, bool forWrite)
+		: iTVPTexture2D(w, h), Owner(owner), ForWrite(forWrite) {}
+	virtual TVPTextureFormat::e GetFormat() const override { return TVPTextureFormat::RGBA; }
+	virtual const void * GetScanLineForRead(tjs_uint l) override;
+	virtual void * GetScanLineForWrite(tjs_uint l) override;
+	virtual tjs_int GetPitch() const override;
+	virtual void Update(const void *pixel, TVPTextureFormat::e format, int pitch, const tTVPRect& rc) override {}
+	virtual uint32_t GetPoint(int x, int y) override { return 0; }
+	virtual void SetPoint(int x, int y, uint32_t clr) override {}
+	virtual bool IsStatic() override { return false; }
+	virtual bool IsOpaque() override { return false; }
+	virtual cocos2d::Texture2D* GetAdapterTexture(cocos2d::Texture2D* origTex) override { return origTex; }
+};
+//---------------------------------------------------------------------------
 class tTVPImageWipeLayerScanLineProvider : public iTVPScanLineProvider
 {
 	tjs_int RefCount;
 	tTJSVariantClosure Closure; // ラップ対象 Layer オブジェクト (AddRef 済)
+	tTVPImageWipeLayerTexture *TexRead;
+	tTVPImageWipeLayerTexture *TexWrite;
 
 	tjs_int GetIntProp(const tjs_char *name)
 	{
@@ -85,9 +120,13 @@ public:
 		RefCount = 1;
 		Closure = layer.AsObjectClosureNoAddRef();
 		Closure.AddRef();
+		TexRead = NULL;
+		TexWrite = NULL;
 	}
 	virtual ~tTVPImageWipeLayerScanLineProvider()
 	{
+		if(TexRead) delete TexRead;
+		if(TexWrite) delete TexWrite;
 		Closure.Release();
 	}
 
@@ -117,7 +156,39 @@ public:
 		if(scanline) *scanline = p;
 		return TJS_S_OK;
 	}
+
+	tjs_uint8 * GetLineForRead(tjs_int line) { return GetBufferPtr(TJS_W("mainImageBuffer"), line); }
+	tjs_uint8 * GetLineForWrite(tjs_int line) { return GetBufferPtr(TJS_W("mainImageBufferForWrite"), line); }
+	tjs_int GetLinePitch() { return GetIntProp(TJS_W("mainImageBufferPitch")); }
+
+	virtual iTVPTexture2D * GetTexture() override
+	{
+		if(!TexRead)
+			TexRead = new tTVPImageWipeLayerTexture(
+				GetIntProp(TJS_W("width")), GetIntProp(TJS_W("height")), this, false);
+		return TexRead;
+	}
+	virtual iTVPTexture2D * GetTextureForRender() override
+	{
+		if(!TexWrite)
+			TexWrite = new tTVPImageWipeLayerTexture(
+				GetIntProp(TJS_W("width")), GetIntProp(TJS_W("height")), this, true);
+		return TexWrite;
+	}
 };
+//---------------------------------------------------------------------------
+const void * tTVPImageWipeLayerTexture::GetScanLineForRead(tjs_uint l)
+{
+	return ForWrite ? Owner->GetLineForWrite((tjs_int)l) : Owner->GetLineForRead((tjs_int)l);
+}
+void * tTVPImageWipeLayerTexture::GetScanLineForWrite(tjs_uint l)
+{
+	return Owner->GetLineForWrite((tjs_int)l);
+}
+tjs_int tTVPImageWipeLayerTexture::GetPitch() const
+{
+	return Owner->GetLinePitch();
+}
 //---------------------------------------------------------------------------
 
 
@@ -205,7 +276,7 @@ void tTVPImageWipeTransHandler::Setup()
 		if(RuleHeight > 0 && rrow >= RuleHeight) rrow = RuleHeight - 1;
 
 		const tjs_uint32 *rule;
-		if(!Rule || TJS_FAILED(Rule->GetScanLine(rrow, (const void**)&rule)))
+		if(!Rule || TJS_FAILED(TVPSLPGetScanLine(Rule, rrow, (const void**)&rule)))
 			continue;
 
 		for(tjs_int col = 0; col < RuleWidth; col++)
@@ -267,11 +338,11 @@ tjs_error TJS_INTF_METHOD tTVPImageWipeTransHandler::Process(tTVPDivisibleData *
 		const tjs_uint32 *src1;
 		const tjs_uint32 *src2;
 		const tjs_uint32 *rule = NULL;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&src1)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&src1)))
 			return TJS_E_FAIL;
-		if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&src2)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&src2)))
 			return TJS_E_FAIL;
 
 		// この行の切り替えエッジとルール scanline
@@ -281,7 +352,7 @@ tjs_error TJS_INTF_METHOD tTVPImageWipeTransHandler::Process(tTVPDivisibleData *
 			tjs_int rrow = y;
 			if(RuleHeight > 0 && rrow >= RuleHeight) rrow = RuleHeight - 1;
 			if(rrow < 0) rrow = 0;
-			Rule->GetScanLine(rrow, (const void**)&rule);
+			TVPSLPGetScanLine(Rule, rrow, (const void**)&rule);
 		}
 
 		// dir に応じ左右のソースを割り当てる

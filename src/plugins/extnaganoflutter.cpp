@@ -104,7 +104,7 @@ void tTVPFlutterTransHandler::BuildBack(tTVPDivisibleData *data)
 	for(tjs_int y = 0; y < Height; y++)
 	{
 		const tjs_uint32 *s1;
-		if(TJS_FAILED(data->Src1->GetScanLine(y, (const void**)&s1)))
+		if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y, (const void**)&s1)))
 			return;
 		tjs_uint32 *col = BackBuf + (Height - 1 - y); // 転置先の縦位置
 		for(tjs_int x = 0; x < Width; x++)
@@ -182,9 +182,9 @@ tjs_error TJS_INTF_METHOD tTVPFlutterTransHandler::Process(tTVPDivisibleData *da
 		{
 			tjs_uint32 *dest;
 			const tjs_uint32 *src1;
-			if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+			if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 				return TJS_E_FAIL;
-			if(TJS_FAILED(data->Src1->GetScanLine(data->Top + n, (const void**)&src1)))
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, data->Top + n, (const void**)&src1)))
 				return TJS_E_FAIL;
 			tjs_uint32 *dp = dest + data->DestLeft;
 			const tjs_uint32 *sp = src1 + data->Left;
@@ -200,9 +200,9 @@ tjs_error TJS_INTF_METHOD tTVPFlutterTransHandler::Process(tTVPDivisibleData *da
 		{
 			tjs_uint32 *dest;
 			const tjs_uint32 *src2;
-			if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+			if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 				return TJS_E_FAIL;
-			if(TJS_FAILED(data->Src2->GetScanLine(data->Top + n, (const void**)&src2)))
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, data->Top + n, (const void**)&src2)))
 				return TJS_E_FAIL;
 			tjs_uint32 *dp = dest + data->DestLeft;
 			const tjs_uint32 *sp = src2 + data->Left;
@@ -233,7 +233,7 @@ tjs_error TJS_INTF_METHOD tTVPFlutterTransHandler::Process(tTVPDivisibleData *da
 		if(RW < rbound) rbound = RW;
 
 		tjs_uint32 *destline;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&destline)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&destline)))
 			return TJS_E_FAIL;
 		tjs_uint32 *dp = destline + data->DestLeft; // 領域先頭 (列 j でアクセス)
 
@@ -242,14 +242,14 @@ tjs_error TJS_INTF_METHOD tTVPFlutterTransHandler::Process(tTVPDivisibleData *da
 		{
 			// 上端の帯: 全て Src2 (ズレによりすでに新画像)
 			const tjs_uint32 *s2;
-			if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&s2))) return TJS_E_FAIL;
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&s2))) return TJS_E_FAIL;
 			s2 += Left;
 			for(tjs_int j = 0; j < RW; j++) dp[j] = s2[j];
 		}
 		else
 		{
 			const tjs_uint32 *s2;
-			if(TJS_FAILED(data->Src2->GetScanLine(y, (const void**)&s2))) return TJS_E_FAIL;
+			if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, y, (const void**)&s2))) return TJS_E_FAIL;
 			s2 += Left;
 
 			tjs_int j = 0;
@@ -260,7 +260,7 @@ tjs_error TJS_INTF_METHOD tTVPFlutterTransHandler::Process(tTVPDivisibleData *da
 			{
 				// 中央: 旧画像 Src1 を (CS,CS) だけ右下にずらして転送
 				const tjs_uint32 *s1;
-				if(TJS_FAILED(data->Src1->GetScanLine(y - CS, (const void**)&s1))) return TJS_E_FAIL;
+				if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, y - CS, (const void**)&s1))) return TJS_E_FAIL;
 				s1 += Left;
 				for(; j < rbound; j++) dp[j] = s1[j - CS];
 			}

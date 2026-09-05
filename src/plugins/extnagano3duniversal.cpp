@@ -103,6 +103,14 @@ public:
 		*scanline = Buf + line * W;
 		return TJS_S_OK;
 	}
+
+	// iTVPScanLineProvider still requires these two (GetTexture/GetTextureForRender
+	// were never disabled -- only the CPU scanline methods above were), but this
+	// provider is only ever read through GetBuffer() (see LoadRulePixel* below),
+	// never through the interface's own GetScanLine/texture path, so there is no
+	// real texture to hand back.
+	virtual iTVPTexture2D * GetTexture() override { return nullptr; }
+	virtual iTVPTexture2D * GetTextureForRender() override { return nullptr; }
 };
 //---------------------------------------------------------------------------
 // rule オプションからルール画像プロバイダを生成する (原 FUN_100026e0 の rule 分岐 +
@@ -181,7 +189,7 @@ static tjs_error CreateRuleProvider(iTVPSimpleOptionProvider *options,
 		for(tjs_int y = 0; y < rh; y++)
 		{
 			const void *src = 0;
-			if(TJS_SUCCEEDED(loaded->GetScanLine(y, &src)) && src)
+			if(TJS_SUCCEEDED(TVPSLPGetScanLine(loaded, y, &src)) && src)
 				memcpy(dst + y * rw, src, sizeof(tjs_uint32) * rw);
 			else
 				memset(dst + y * rw, 0, sizeof(tjs_uint32) * rw);
@@ -409,7 +417,7 @@ void tTVP3duniversalTransHandler::CopySrcToOut(iTVPScanLineProvider *src)
 	for(tjs_int y = 0; y < Height; y++)
 	{
 		const void *p = 0;
-		if(TJS_FAILED(src->GetScanLine(y, &p)) || !p) continue;
+		if(TJS_FAILED(TVPSLPGetScanLine(src, y, &p)) || !p) continue;
 		memcpy(OutBuf + y * Width, p, sizeof(tjs_uint32) * Width);
 	}
 }
@@ -431,7 +439,7 @@ void tTVP3duniversalTransHandler::ScatterMove(iTVPScanLineProvider *src, tjs_int
 	for(tjs_int y = 0; y < Height; y++)
 	{
 		const tjs_uint32 *sp = 0;
-		if(TJS_FAILED(src->GetScanLine(y, (const void**)&sp)) || !sp) continue;
+		if(TJS_FAILED(TVPSLPGetScanLine(src, y, (const void**)&sp)) || !sp) continue;
 		const tjs_uint32 *rp = RuleBuf + y * Width;
 
 		for(tjs_int x = 0; x < Width; x++)
@@ -551,7 +559,7 @@ tjs_error TJS_INTF_METHOD tTVP3duniversalTransHandler::Process(tTVPDivisibleData
 	{
 		tjs_int srcY = data->Top + n;
 		tjs_uint32 *dest;
-		if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop + n, (void**)&dest)))
+		if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop + n, (void**)&dest)))
 			return TJS_E_FAIL;
 
 		// scanline.cpp/zoomfade.cpp と同じ基点: dest + DestLeft - Left, 絶対列参照

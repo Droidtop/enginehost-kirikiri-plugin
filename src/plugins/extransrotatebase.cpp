@@ -100,17 +100,17 @@ tjs_error TJS_INTF_METHOD tTVPBaseRotateTransHandler::Process(
 	tjs_int src1pitch;
 	const tjs_uint8 *src2;
 	tjs_int src2pitch;
-	if(TJS_FAILED(data->Dest->GetScanLineForWrite(data->DestTop, (void**)&dest)))
+	if(TJS_FAILED(TVPSLPGetScanLineForWrite(data->Dest, data->DestTop, (void**)&dest)))
 		return TJS_E_FAIL;
-	if(TJS_FAILED(data->Src1->GetScanLine(0, (const void**)&src1)))
+	if(TJS_FAILED(TVPSLPGetScanLine(data->Src1, 0, (const void**)&src1)))
 		return TJS_E_FAIL;
-	if(TJS_FAILED(data->Src2->GetScanLine(0, (const void**)&src2)))
+	if(TJS_FAILED(TVPSLPGetScanLine(data->Src2, 0, (const void**)&src2)))
 		return TJS_E_FAIL;
-	if(TJS_FAILED(data->Dest->GetPitchBytes(&destpitch)))
+	if(TJS_FAILED(TVPSLPGetPitchBytes(data->Dest, &destpitch)))
 		return TJS_E_FAIL;
-	if(TJS_FAILED(data->Src1->GetPitchBytes(&src1pitch)))
+	if(TJS_FAILED(TVPSLPGetPitchBytes(data->Src1, &src1pitch)))
 		return TJS_E_FAIL;
-	if(TJS_FAILED(data->Src2->GetPitchBytes(&src2pitch)))
+	if(TJS_FAILED(TVPSLPGetPitchBytes(data->Src2, &src2pitch)))
 		return TJS_E_FAIL;
 
 	// 各ラインごとに転送
