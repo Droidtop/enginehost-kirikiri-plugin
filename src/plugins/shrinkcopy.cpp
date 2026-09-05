@@ -22,7 +22,13 @@
 struct LayerUtils
 {
 	// １ピクセルの型
-	typedef unsigned long PixelT;
+	// wamsoft wrote "unsigned long" here, which is 32 bits on Win32 but 64 on
+	// LP64 Android. Every use of PixelT dereferences a pixel out of a layer's
+	// image buffer, so a 64-bit PixelT read two pixels at a time and stepped
+	// the cursor two pixels at a time -- addRect() then ran a full image width
+	// past the end of the source buffer and Noble Works died with SIGSEGV
+	// (SEGV_ACCERR) on the first shrinkCopy. A pixel is 32 bits, always.
+	typedef tjs_uint32 PixelT;
 
 	// バッファ参照用の型
 	typedef unsigned char UnitT;
@@ -185,7 +191,10 @@ struct ShrinkCopy : public LayerUtils
 		return true;
 	}
 
-	typedef unsigned long AvgT;
+	// Same reason as PixelT: the original's 32-bit "unsigned long" is what the
+	// overflow guard in makeAvgTable() (which shrinks `unit` below 1/16 zoom)
+	// is sized for, so keep the accumulators exactly 32 bits wide.
+	typedef tjs_uint32 AvgT;
 	typedef unsigned char uchar;
 	struct AvgInfoT { int offset, step; AvgT ta, tc, ba, bc, total; };
 	struct ElementT { AvgT r, g, b, a; };
@@ -307,9 +316,14 @@ struct ShrinkCopy : public LayerUtils
 	}
 
 	void* allocAvgBuffer(AvgInfoT* &hi, AvgInfoT* &vi, long w, long h) {
-		void *ret = malloc(sizeof(AvgInfoT)*w*h);
-		hi = (AvgInfoT*)ret;
-		vi = hi + w;
+		// The two tables are laid out back to back, so w+h entries are needed;
+		// the original multiplied instead, which is far more than needed for
+		// most blits but *under*-allocates whenever either side is one pixel
+		// (w*h < w+h there) -- and shrinking to a one-pixel row or column is
+		// exactly what the thumbnail callers do.
+		void *ret = malloc(sizeof(AvgInfoT)*(w+h));
+		hi = ret ? (AvgInfoT*)ret : 0;
+		vi = ret ? (hi + w)       : 0;
 		return ret;
 	}
 	void  freeAvgBuffer(void *buf) {
