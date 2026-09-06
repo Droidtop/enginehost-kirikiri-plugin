@@ -119,8 +119,15 @@ jobs:
           name: native-symbols-${{ github.run_number }}
           path: build/symbols/
           if-no-files-found: warn
+      # A plugin branch signs every green build, because that is what feeds the
+      # unstable channel. A promotion signs whatever ref it was dispatched
+      # against, which is the point of promoting: the commit that was proven on
+      # hardware is rarely the branch tip by the time its proof comes back, so
+      # it is dispatched from a ref of its own. Without this a promotion from
+      # anything but a plugin branch built cleanly, produced no bundle, and the
+      # publish job said "nothing to publish" while the run stayed green.
       - name: Build signed internal Enginehost bundle
-        if: startsWith(github.ref, 'refs/heads/plugin/')
+        if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         env:
           ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
         run: |
