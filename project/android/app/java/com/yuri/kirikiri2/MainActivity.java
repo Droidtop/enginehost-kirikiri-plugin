@@ -7,33 +7,59 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.InputDevice;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.json.JSONObject;
 import org.tvp.kirikiri2.KR2Activity;
 
 /**
- * The enginehost wrapper's activity. Kirikiroid2 is a touch and keyboard
- * application; a handheld drives it with a gamepad, and what each pad button
- * means is the person's choice in Enginehost's controller settings, handed
- * to this activity as the CONTROLLER_BINDINGS extra (action id -> pad key or
- * axis). This class only decides what an action means to a KiriKiri game:
+ * The enginehost wrapper's activity, and the KiriKiri family's controller
+ * layer.
  *
- * Keys. confirm/cancel/menu/skip/auto/history/page_* become the keyboard
- * keys a KAG game is driven by; up/down/left/right become the D-pad keys.
+ * KiriKiri has no gamepad support of its own on Android: cocos2d-x 3.17.2's
+ * Java side has no controller plumbing at all, so the engine's
+ * EventListenerController never fires and VK_PAD1..VK_PAD10 are dead code.
+ * A pad therefore does not need shimming onto an existing path -- this class
+ * IS the path, and it decides what a pad means to a KAG game.
  *
- * Pointer. Many KiriKiri menus, title screens first of all, answer only the
- * mouse. The stick bound to left_x/left_y therefore moves a cursor drawn over
- * the game, and while the cursor is shown the confirm action presses and
- * releases a touch at the cursor instead of sending Enter. The cursor hides
- * after a few seconds without stick input and confirm is a key again.
+ * Pointing. A KAG game is a mouse application: its title screen, its menus
+ * and its choices are clickable layers, and its buttons only take focus from
+ * a mouse-down (Noble Works' own ButtonLayer.tjs says "TODO: keyboard focus"),
+ * so arrow-key focus traversal cannot even start on a title screen. The left
+ * stick and the D-pad therefore drive a cursor drawn over the game, with
+ * acceleration so a tap nudges and a held push crosses the screen, and
+ * confirm presses a touch at the cursor. That is one mechanism for pointing,
+ * used by both, rather than a cursor for the stick and keys for the D-pad.
+ *
+ * Reading. The right stick sends arrow keys, repeating while it is held.
+ * Arrow keys are what a KAG list layer reads once one is open -- the backlog
+ * scrolls on them, and the engine's own focus traversal steps on them -- and
+ * they are useless as a pointer, so the two sticks never fight.
+ *
+ * Keys. cancel, menu, skip, auto, history and the page actions become the
+ * keys this engine and KAG actually read; what is behind each is spelled out
+ * in {@link #keyForAction}. Which pad button carries which action is the
+ * person's choice in Enginehost's controller settings, handed over as the
+ * CONTROLLER_BINDINGS extra; {@link #DEFAULT_KEY_ACTIONS} only stands in when
+ * no map arrives at all.
+ *
+ * Testing. Every action is taken from its key code alone, whatever source the
+ * event claims, so `adb shell input keyevent KEYCODE_BUTTON_A` -- which
+ * arrives as a keyboard event with no device behind it -- exercises the same
+ * code a pad does. That is what lets this be proven without a person holding
+ * the console.
  */
 public class MainActivity extends KR2Activity {
 	private static final String TAG = "EnginehostKiriKiri";
@@ -48,41 +74,129 @@ public class MainActivity extends KR2Activity {
 		System.loadLibrary("krkr2yuri");
 	}
 
-	private static final long CURSOR_HIDE_MS = 3000;
-	private static final float STICK_DEADZONE = 0.2f;
-	private static final float CURSOR_SPEED_PX_PER_S = 900f;
+	private static final float STICK_DEADZONE = 0.25f;
+	/** Pointer speed at the instant a push begins, and after it has ramped. */
+	private static final float POINTER_SLOW_PX_S = 300f;
+	private static final float POINTER_FAST_PX_S = 1700f;
+	private static final long POINTER_RAMP_MS = 600;
 	private static final long FRAME_MS = 16;
+	private static final long CURSOR_HIDE_MS = 4000;
+	/** Arrow-key repeat from the right stick: one key, a pause, then a stream. */
+	private static final long SCROLL_FIRST_MS = 350;
+	private static final long SCROLL_REPEAT_MS = 110;
+	/** How long the menu button must be held to mean "show me the mapping". */
+	private static final long LEGEND_HOLD_MS = 400;
+
+	/**
+	 * The layout to fall back on when enginehost sends no bindings (a
+	 * standalone launch, or an older host). A real map always wins entire: if
+	 * a person moves confirm to another button, the button they moved it off
+	 * must go quiet rather than keep a default meaning.
+	 */
+	private static final Map<Integer, String> DEFAULT_KEY_ACTIONS = new HashMap<Integer, String>();
+	private static final Map<String, Integer> DEFAULT_AXIS_ACTIONS = new HashMap<String, Integer>();
+	static {
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_UP, "up");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_DOWN, "down");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_LEFT, "left");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_RIGHT, "right");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_A, "confirm");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_B, "cancel");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_X, "skip");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_Y, "auto");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_START, "menu");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_SELECT, "history");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_L2, "page_previous");
+		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_R2, "page_next");
+		DEFAULT_AXIS_ACTIONS.put("left_x", MotionEvent.AXIS_X);
+		DEFAULT_AXIS_ACTIONS.put("left_y", MotionEvent.AXIS_Y);
+		DEFAULT_AXIS_ACTIONS.put("right_x", MotionEvent.AXIS_Z);
+		DEFAULT_AXIS_ACTIONS.put("right_y", MotionEvent.AXIS_RZ);
+	}
+
+	/** What each action does here, in the words the on-screen legend uses. */
+	private static final Map<String, String> ACTION_MEANINGS = new LinkedHashMap<String, String>();
+	static {
+		ACTION_MEANINGS.put("confirm", "click");
+		ACTION_MEANINGS.put("cancel", "back / hide text");
+		ACTION_MEANINGS.put("skip", "skip (hold)");
+		ACTION_MEANINGS.put("auto", "auto");
+		ACTION_MEANINGS.put("history", "backlog");
+		ACTION_MEANINGS.put("page_previous", "backlog page up");
+		ACTION_MEANINGS.put("page_next", "backlog page down");
+		ACTION_MEANINGS.put("menu", "menu (hold: this list)");
+	}
 
 	private final Handler handler = new Handler(Looper.getMainLooper());
-	private final Map<Integer, String> padKeyActions = new HashMap<>();
-	private final Map<Integer, String> padAxisActions = new HashMap<>();
-	private FrameLayout cursorLayer;
+	private final Map<Integer, String> padKeyActions = new HashMap<Integer, String>();
+	private final Map<String, Integer> padAxisActions = new HashMap<String, Integer>();
+
+	private FrameLayout overlay;
 	private View cursorView;
+	private TextView legendView;
 	private float cursorX = -1f, cursorY = -1f;
 	private float stickX, stickY;
-	private long lastStickInput;
-	private boolean cursorShown;
+	private float scrollX, scrollY;
+	private int hatX, hatY;
+	private int keyDirX, keyDirY;
+	private boolean pointerRunning, scrollRunning;
+	private long pointerStart;
+	private long lastPadInput;
 	private boolean clickHeld;
 	private long clickDownTime;
+	private boolean legendShown;
 
-	private final Runnable moveCursor = new Runnable() {
+	private final Runnable movePointer = new Runnable() {
 		@Override
 		public void run() {
-			if (Math.abs(stickX) > STICK_DEADZONE || Math.abs(stickY) > STICK_DEADZONE) {
-				float step = CURSOR_SPEED_PX_PER_S * FRAME_MS / 1000f;
-				setCursor(cursorX + stickX * step, cursorY + stickY * step);
-				if (clickHeld) sendTouch(MotionEvent.ACTION_MOVE);
-				handler.postDelayed(this, FRAME_MS);
+			float dx = pointerX(), dy = pointerY();
+			if (dx == 0f && dy == 0f) {
+				pointerRunning = false;
+				pointerStart = 0;
+				scheduleCursorHide();
+				return;
 			}
+			long now = SystemClock.uptimeMillis();
+			if (pointerStart == 0) pointerStart = now;
+			float ramp = Math.min(1f, (now - pointerStart) / (float) POINTER_RAMP_MS);
+			float speed = POINTER_SLOW_PX_S + (POINTER_FAST_PX_S - POINTER_SLOW_PX_S) * ramp * ramp;
+			float step = speed * FRAME_MS / 1000f;
+			setCursor(cursorX + dx * step, cursorY + dy * step);
+			if (clickHeld) sendTouch(MotionEvent.ACTION_MOVE);
+			lastPadInput = now;
+			handler.postDelayed(this, FRAME_MS);
+		}
+	};
+
+	private final Runnable repeatScroll = new Runnable() {
+		@Override
+		public void run() {
+			int key = scrollKey();
+			if (key == KeyEvent.KEYCODE_UNKNOWN) {
+				scrollRunning = false;
+				return;
+			}
+			tapKey(key);
+			handler.postDelayed(this, SCROLL_REPEAT_MS);
 		}
 	};
 
 	private final Runnable hideCursor = new Runnable() {
 		@Override
 		public void run() {
-			if (SystemClock.uptimeMillis() - lastStickInput >= CURSOR_HIDE_MS && !clickHeld) {
-				cursorShown = false;
-				if (cursorView != null) cursorView.setVisibility(View.GONE);
+			if (SystemClock.uptimeMillis() - lastPadInput < CURSOR_HIDE_MS) return;
+			if (clickHeld || pointerRunning) return;
+			if (cursorView != null) cursorView.setVisibility(View.GONE);
+		}
+	};
+
+	private final Runnable showLegend = new Runnable() {
+		@Override
+		public void run() {
+			legendShown = true;
+			if (legendView != null) {
+				legendView.setText(legendText());
+				legendView.setVisibility(View.VISIBLE);
 			}
 		}
 	};
@@ -113,11 +227,15 @@ public class MainActivity extends KR2Activity {
 		loadControllerBindings(getIntent().getStringExtra("dev.enginehost.runtime.CONTROLLER_BINDINGS"));
 		logInputDevices();
 		super.onCreate(savedInstanceState);
-		// A layer over the game for the cursor. Drawn, not an asset: a ring
-		// with a translucent fill, sized for a handheld screen.
-		cursorLayer = new FrameLayout(this);
-		cursorLayer.setClickable(false);
-		cursorLayer.setFocusable(false);
+		buildOverlay();
+	}
+
+	/** The cursor and the mapping legend, drawn over the game. */
+	private void buildOverlay() {
+		overlay = new FrameLayout(this);
+		overlay.setClickable(false);
+		overlay.setFocusable(false);
+
 		cursorView = new View(this);
 		GradientDrawable ring = new GradientDrawable();
 		ring.setShape(GradientDrawable.OVAL);
@@ -125,34 +243,58 @@ public class MainActivity extends KR2Activity {
 		ring.setStroke(dp(2), Color.argb(230, 20, 20, 20));
 		cursorView.setBackground(ring);
 		cursorView.setVisibility(View.GONE);
-		cursorLayer.addView(cursorView, new FrameLayout.LayoutParams(dp(22), dp(22)));
-		addContentView(cursorLayer, new ViewGroup.LayoutParams(
+		overlay.addView(cursorView, new FrameLayout.LayoutParams(dp(22), dp(22)));
+
+		legendView = new TextView(this);
+		GradientDrawable panel = new GradientDrawable();
+		panel.setColor(Color.argb(210, 16, 16, 20));
+		panel.setCornerRadius(dp(8));
+		panel.setStroke(dp(1), Color.argb(120, 255, 255, 255));
+		legendView.setBackground(panel);
+		legendView.setTextColor(Color.argb(240, 255, 255, 255));
+		legendView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+		legendView.setPadding(dp(10), dp(8), dp(10), dp(8));
+		legendView.setVisibility(View.GONE);
+		FrameLayout.LayoutParams legendPlace = new FrameLayout.LayoutParams(
+				ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+		legendPlace.gravity = Gravity.BOTTOM | Gravity.START;
+		legendPlace.setMargins(dp(12), dp(12), dp(12), dp(12));
+		overlay.addView(legendView, legendPlace);
+
+		addContentView(overlay, new ViewGroup.LayoutParams(
 				ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 	}
 
 	private void loadControllerBindings(String json) {
 		padKeyActions.clear();
 		padAxisActions.clear();
-		if (json == null) {
-			Log.w(TAG, "No controller map from enginehost; the pad will do nothing");
-			return;
-		}
-		try {
-			JSONObject map = new JSONObject(json);
-			Iterator<String> actions = map.keys();
-			while (actions.hasNext()) {
-				String action = actions.next();
-				JSONObject binding = map.getJSONObject(action);
-				if ("key".equals(binding.getString("type"))) {
-					padKeyActions.put(binding.getInt("code"), action);
-				} else if ("axis".equals(binding.getString("type"))) {
-					padAxisActions.put(binding.getInt("axis"), action);
+		if (json != null) {
+			try {
+				JSONObject map = new JSONObject(json);
+				Iterator<String> actions = map.keys();
+				while (actions.hasNext()) {
+					String action = actions.next();
+					JSONObject binding = map.getJSONObject(action);
+					if ("key".equals(binding.getString("type"))) {
+						padKeyActions.put(binding.getInt("code"), action);
+					} else if ("axis".equals(binding.getString("type"))) {
+						padAxisActions.put(action, binding.getInt("axis"));
+					}
 				}
+			} catch (Exception error) {
+				Log.w(TAG, "Ignoring an unreadable controller map: " + error);
+				padKeyActions.clear();
+				padAxisActions.clear();
 			}
-			Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, " + padAxisActions.size() + " axes");
-		} catch (Exception error) {
-			Log.w(TAG, "Ignoring an unreadable controller map: " + error);
 		}
+		if (padKeyActions.isEmpty()) {
+			Log.w(TAG, "No controller map from enginehost; using this plugin's own layout");
+			padKeyActions.putAll(DEFAULT_KEY_ACTIONS);
+		}
+		if (padAxisActions.isEmpty()) {
+			padAxisActions.putAll(DEFAULT_AXIS_ACTIONS);
+		}
+		Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, " + padAxisActions.size() + " axes");
 	}
 
 	private int dp(int value) {
@@ -183,37 +325,88 @@ public class MainActivity extends KR2Activity {
 
 	// ---------------------------------------------------------------- pointer
 
-	private int motionLogBudget = 20;
+	private int motionLogBudget = 12;
 
 	@Override
 	public boolean dispatchGenericMotionEvent(MotionEvent event) {
-		if (motionLogBudget > 0 && (event.getSource() & (InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD)) != 0) {
+		boolean fromStick = (event.getSource() & (InputDevice.SOURCE_JOYSTICK | InputDevice.SOURCE_GAMEPAD)) != 0;
+		if (!fromStick || event.getAction() != MotionEvent.ACTION_MOVE) {
+			return super.dispatchGenericMotionEvent(event);
+		}
+		stickX = axis(event, "left_x");
+		stickY = axis(event, "left_y");
+		scrollX = axis(event, "right_x");
+		scrollY = axis(event, "right_y");
+		// Many pads report their D-pad as a hat rather than as D-pad keys, and
+		// a hat arrives as motion, not as a key. Fold it into the same
+		// direction the D-pad keys feed, so the cursor moves either way.
+		hatX = direction(event.getAxisValue(MotionEvent.AXIS_HAT_X));
+		hatY = direction(event.getAxisValue(MotionEvent.AXIS_HAT_Y));
+		if (motionLogBudget > 0) {
 			motionLogBudget--;
-			Log.d(TAG, "Pad motion source=0x" + Integer.toHexString(event.getSource()) + " pad=" + isPad(event.getDevice())
-					+ " x=" + event.getAxisValue(MotionEvent.AXIS_X) + " y=" + event.getAxisValue(MotionEvent.AXIS_Y)
-					+ " hatX=" + event.getAxisValue(MotionEvent.AXIS_HAT_X) + " axes bound=" + padAxisActions);
+			Log.d(TAG, "Pad motion source=0x" + Integer.toHexString(event.getSource())
+					+ " pointer=" + pointerX() + "," + pointerY()
+					+ " scroll=" + scrollX + "," + scrollY);
 		}
-		if (isPad(event.getDevice()) && event.getAction() == MotionEvent.ACTION_MOVE) {
-			float x = 0f, y = 0f;
-			for (Map.Entry<Integer, String> bound : padAxisActions.entrySet()) {
-				if ("left_x".equals(bound.getValue())) x = event.getAxisValue(bound.getKey());
-				if ("left_y".equals(bound.getValue())) y = event.getAxisValue(bound.getKey());
+		pointerChanged();
+		scrollChanged();
+		return true;
+	}
+
+	private float axis(MotionEvent event, String action) {
+		Integer which = padAxisActions.get(action);
+		if (which == null) return 0f;
+		float value = event.getAxisValue(which);
+		return Math.abs(value) > STICK_DEADZONE ? value : 0f;
+	}
+
+	private static int direction(float value) {
+		if (value > 0.5f) return 1;
+		if (value < -0.5f) return -1;
+		return 0;
+	}
+
+	private float pointerX() { return stickX != 0f ? stickX : (keyDirX != 0 ? keyDirX : hatX); }
+	private float pointerY() { return stickY != 0f ? stickY : (keyDirY != 0 ? keyDirY : hatY); }
+
+	/** Start or stop the cursor after anything that could have moved it. */
+	private void pointerChanged() {
+		boolean moving = pointerX() != 0f || pointerY() != 0f;
+		if (moving) {
+			lastPadInput = SystemClock.uptimeMillis();
+			showCursor();
+			if (!pointerRunning) {
+				pointerRunning = true;
+				pointerStart = 0;
+				handler.post(movePointer);
 			}
-			boolean wasMoving = stickX != 0f || stickY != 0f;
-			stickX = Math.abs(x) > STICK_DEADZONE ? x : 0f;
-			stickY = Math.abs(y) > STICK_DEADZONE ? y : 0f;
-			boolean moving = stickX != 0f || stickY != 0f;
-			if (moving) {
-				lastStickInput = SystemClock.uptimeMillis();
-				showCursor();
-				if (!wasMoving) handler.post(moveCursor);
-			} else {
-				handler.removeCallbacks(hideCursor);
-				handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
-			}
-			return true;
+		} else if (pointerRunning) {
+			pointerRunning = false;
+			pointerStart = 0;
+			handler.removeCallbacks(movePointer);
+			scheduleCursorHide();
 		}
-		return super.dispatchGenericMotionEvent(event);
+	}
+
+	private int scrollKey() {
+		if (scrollY < 0f) return KeyEvent.KEYCODE_DPAD_UP;
+		if (scrollY > 0f) return KeyEvent.KEYCODE_DPAD_DOWN;
+		if (scrollX < 0f) return KeyEvent.KEYCODE_DPAD_LEFT;
+		if (scrollX > 0f) return KeyEvent.KEYCODE_DPAD_RIGHT;
+		return KeyEvent.KEYCODE_UNKNOWN;
+	}
+
+	private void scrollChanged() {
+		int key = scrollKey();
+		if (key == KeyEvent.KEYCODE_UNKNOWN) {
+			scrollRunning = false;
+			handler.removeCallbacks(repeatScroll);
+			return;
+		}
+		if (scrollRunning) return;
+		scrollRunning = true;
+		tapKey(key);
+		handler.postDelayed(repeatScroll, SCROLL_FIRST_MS);
 	}
 
 	private void showCursor() {
@@ -222,9 +415,13 @@ public class MainActivity extends KR2Activity {
 			View root = getWindow().getDecorView();
 			setCursor(root.getWidth() / 2f, root.getHeight() / 2f);
 		}
-		cursorShown = true;
 		cursorView.setVisibility(View.VISIBLE);
-		Log.d(TAG, "Cursor shown at " + cursorX + "," + cursorY);
+		handler.removeCallbacks(hideCursor);
+	}
+
+	private void scheduleCursorHide() {
+		handler.removeCallbacks(hideCursor);
+		handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
 	}
 
 	private void setCursor(float x, float y) {
@@ -237,15 +434,19 @@ public class MainActivity extends KR2Activity {
 		}
 	}
 
+	private int touchLogBudget = 20;
+
 	/** A touch at the cursor, delivered to the game the way a finger would be. */
 	private void sendTouch(int action) {
+		if (cursorX < 0f) showCursor();
 		long now = SystemClock.uptimeMillis();
 		if (action == MotionEvent.ACTION_DOWN) clickDownTime = now;
 		MotionEvent touch = MotionEvent.obtain(clickDownTime, now, action, cursorX, cursorY, 0);
 		touch.setSource(InputDevice.SOURCE_TOUCHSCREEN);
 		boolean handled = super.dispatchTouchEvent(touch);
 		touch.recycle();
-		if (action != MotionEvent.ACTION_MOVE) {
+		if (action != MotionEvent.ACTION_MOVE && touchLogBudget > 0) {
+			touchLogBudget--;
 			Log.d(TAG, "Touch " + (action == MotionEvent.ACTION_DOWN ? "down" : "up")
 					+ " at " + cursorX + "," + cursorY + " handled=" + handled);
 		}
@@ -257,73 +458,139 @@ public class MainActivity extends KR2Activity {
 
 	@Override
 	public boolean dispatchKeyEvent(KeyEvent event) {
-		boolean pad = isPad(event.getDevice());
+		// The action is taken from the key code alone: a pad's own events, a
+		// keyboard's, and the synthetic ones `adb shell input keyevent` sends
+		// (source keyboard, no device behind them) all have to reach the same
+		// code, or this layer cannot be proven without a person holding a pad.
+		String action = padKeyActions.get(event.getKeyCode());
+		boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
 		if (keyLogBudget > 0) {
 			keyLogBudget--;
-			Log.d(TAG, "Key " + KeyEvent.keyCodeToString(event.getKeyCode())
-					+ (event.getAction() == KeyEvent.ACTION_DOWN ? " down" : " up")
-					+ " source=0x" + Integer.toHexString(event.getSource()) + " pad=" + pad
-					+ " action=" + padKeyActions.get(event.getKeyCode()) + " cursor=" + cursorShown);
+			Log.d(TAG, "Key " + KeyEvent.keyCodeToString(event.getKeyCode()) + (down ? " down" : " up")
+					+ " source=0x" + Integer.toHexString(event.getSource())
+					+ " pad=" + isPad(event.getDevice()) + " action=" + action);
 		}
-		if (!pad) {
+		if (action == null) {
 			return super.dispatchKeyEvent(event);
 		}
-		// Any pad activity brings the cursor back, not only the stick: on a KAG
-		// title screen the mouse is the only thing that acts, so a person who
-		// presses a button should get the pointer they need rather than nothing.
-		if (event.getAction() == KeyEvent.ACTION_DOWN) {
-			lastStickInput = SystemClock.uptimeMillis();
-			showCursor();
-			handler.removeCallbacks(hideCursor);
-			handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
+		if (down && event.getRepeatCount() > 0) {
+			return true; // held keys repeat on our own clock, not Android's
 		}
-		String action = padKeyActions.get(event.getKeyCode());
-		if (action == null) {
+		lastPadInput = SystemClock.uptimeMillis();
+		return act(action, down);
+	}
+
+	private boolean act(String action, boolean down) {
+		if ("up".equals(action) || "down".equals(action)
+				|| "left".equals(action) || "right".equals(action)) {
+			int value = down ? 1 : 0;
+			if ("left".equals(action)) keyDirX = -value;
+			else if ("right".equals(action)) keyDirX = value;
+			else if ("up".equals(action)) keyDirY = -value;
+			else keyDirY = value;
+			pointerChanged();
 			return true;
 		}
-		if ("confirm".equals(action) && cursorShown) {
-			if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-				clickHeld = true;
-				lastStickInput = SystemClock.uptimeMillis();
-				sendTouch(MotionEvent.ACTION_DOWN);
-			} else if (event.getAction() == KeyEvent.ACTION_UP) {
-				clickHeld = false;
-				sendTouch(MotionEvent.ACTION_UP);
-				handler.removeCallbacks(hideCursor);
-				handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
+		if ("confirm".equals(action)) {
+			// Always a click at the cursor, never Enter. KAG's Enter path
+			// re-tests System.getKeyState when the queued event is finally
+			// processed, so a short press can be dropped there, while a click
+			// is what every clickable layer answers anyway.
+			showCursor();
+			clickHeld = down;
+			sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
+			if (!down) scheduleCursorHide();
+			return true;
+		}
+		if ("menu".equals(action)) {
+			// A short press opens the engine's system menu; holding it shows
+			// the mapping, which is the one thing a person needs when they do
+			// not know what a button does.
+			if (down) {
+				handler.postDelayed(showLegend, LEGEND_HOLD_MS);
+			} else {
+				handler.removeCallbacks(showLegend);
+				if (legendShown) {
+					legendShown = false;
+					if (legendView != null) legendView.setVisibility(View.GONE);
+				} else {
+					tapKey(KeyEvent.KEYCODE_MENU);
+				}
 			}
 			return true;
 		}
 		int key = keyForAction(action);
 		if (key == KeyEvent.KEYCODE_UNKNOWN) {
-			return true; // an action this engine has no use for
+			return true; // an action a KAG game has nothing to do with
 		}
-		KeyEvent mapped = new KeyEvent(event.getDownTime(), event.getEventTime(), event.getAction(),
-				key, event.getRepeatCount(), event.getMetaState(), event.getDeviceId(),
-				event.getScanCode(), event.getFlags(), InputDevice.SOURCE_KEYBOARD);
-		boolean handled = super.dispatchKeyEvent(mapped);
-		if (keyLogBudget > 0) {
-			Log.d(TAG, "Injected " + KeyEvent.keyCodeToString(key) + " for " + action + ", handled=" + handled);
+		if ("skip".equals(action)) {
+			injectKey(key, down); // skip is a held key, so mirror the press
+			return true;
+		}
+		if (down) tapKey(key);
+		return true;
+	}
+
+	/**
+	 * What an Enginehost action means to a KAG game, as the key it reads.
+	 * Read off Noble Works' own MainWindow.processKeys, which is stock KAG:
+	 * Escape is what a right click does, Control held is skip, A is auto, R is
+	 * the backlog and the page keys scroll it. Menu is Kirikiroid2's own
+	 * system menu (save, load, settings), handled above rather than here.
+	 *
+	 * quick_save and quick_load are deliberately absent: KAG's S and L
+	 * shortcuts only exist in free-save-data mode, and a shoulder button that
+	 * silently overwrites a save is worse than one that does nothing. Saving
+	 * is on the system menu.
+	 */
+	private static int keyForAction(String action) {
+		if ("cancel".equals(action)) return KeyEvent.KEYCODE_ESCAPE;
+		if ("skip".equals(action)) return KeyEvent.KEYCODE_CTRL_LEFT;
+		if ("auto".equals(action)) return KeyEvent.KEYCODE_A;
+		if ("history".equals(action)) return KeyEvent.KEYCODE_R;
+		if ("page_previous".equals(action)) return KeyEvent.KEYCODE_PAGE_UP;
+		if ("page_next".equals(action)) return KeyEvent.KEYCODE_PAGE_DOWN;
+		return KeyEvent.KEYCODE_UNKNOWN;
+	}
+
+	private int injectLogBudget = 40;
+
+	private boolean injectKey(int keyCode, boolean down) {
+		long now = SystemClock.uptimeMillis();
+		KeyEvent event = new KeyEvent(now, now,
+				down ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP, keyCode, 0, 0,
+				KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
+		boolean handled = super.dispatchKeyEvent(event);
+		if (injectLogBudget > 0) {
+			injectLogBudget--;
+			Log.d(TAG, "Injected " + KeyEvent.keyCodeToString(keyCode) + (down ? " down" : " up")
+					+ ", handled=" + handled);
 		}
 		return handled;
 	}
 
-	/** What an Enginehost action means to a KAG game, as the keyboard key it reads. */
-	private static int keyForAction(String action) {
-		switch (action) {
-			case "up": return KeyEvent.KEYCODE_DPAD_UP;
-			case "down": return KeyEvent.KEYCODE_DPAD_DOWN;
-			case "left": return KeyEvent.KEYCODE_DPAD_LEFT;
-			case "right": return KeyEvent.KEYCODE_DPAD_RIGHT;
-			case "confirm": return KeyEvent.KEYCODE_ENTER;
-			case "cancel": return KeyEvent.KEYCODE_ESCAPE;
-			case "menu": return KeyEvent.KEYCODE_ESCAPE;
-			case "skip": return KeyEvent.KEYCODE_CTRL_LEFT;
-			case "auto": return KeyEvent.KEYCODE_SPACE;
-			case "history": return KeyEvent.KEYCODE_PAGE_UP;
-			case "page_previous": return KeyEvent.KEYCODE_PAGE_UP;
-			case "page_next": return KeyEvent.KEYCODE_PAGE_DOWN;
-			default: return KeyEvent.KEYCODE_UNKNOWN;
+	private void tapKey(int keyCode) {
+		injectKey(keyCode, true);
+		injectKey(keyCode, false);
+	}
+
+	/** The mapping as it actually stands, so the legend can never lie. */
+	private String legendText() {
+		Map<String, String> buttons = new LinkedHashMap<String, String>();
+		for (Map.Entry<Integer, String> bound : padKeyActions.entrySet()) {
+			String meaning = ACTION_MEANINGS.get(bound.getValue());
+			if (meaning == null) continue;
+			String label = KeyEvent.keyCodeToString(bound.getKey())
+					.replace("KEYCODE_BUTTON_", "").replace("KEYCODE_", "");
+			String had = buttons.get(bound.getValue());
+			buttons.put(bound.getValue(), had == null ? label : had + " / " + label);
 		}
+		StringBuilder text = new StringBuilder("Stick or D-pad: pointer   Right stick: scroll");
+		for (Map.Entry<String, String> meaning : ACTION_MEANINGS.entrySet()) {
+			String label = buttons.get(meaning.getKey());
+			if (label == null) continue;
+			text.append("\n").append(label).append(": ").append(meaning.getValue());
+		}
+		return text.toString();
 	}
 }
