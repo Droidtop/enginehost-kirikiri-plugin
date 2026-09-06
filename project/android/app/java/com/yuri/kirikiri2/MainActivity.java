@@ -462,6 +462,19 @@ public class MainActivity extends KR2Activity {
 		stickY = axis(event, "left_y");
 		scrollX = axis(event, "right_x");
 		scrollY = axis(event, "right_y");
+		// Every sample this event carries, oldest first, and then the event's
+		// own. A joystick event is batched: Android hands over one ACTION_MOVE
+		// holding all the samples that arrived since the last frame, and
+		// getAxisValue answers only for the newest of them. A D-pad tap short
+		// enough to begin and end inside one batch therefore reads as hat
+		// 0 -> 0, raises no direction at all, and is lost -- the other half of
+		// "the pointer moves only occasionally". A direction is an edge, so
+		// every edge in the event has to be looked at.
+		int samples = event.getHistorySize();
+		for (int sample = 0; sample < samples; sample++) {
+			applyHat(direction(event.getHistoricalAxisValue(MotionEvent.AXIS_HAT_X, sample)),
+					direction(event.getHistoricalAxisValue(MotionEvent.AXIS_HAT_Y, sample)));
+		}
 		applyHat(direction(event.getAxisValue(MotionEvent.AXIS_HAT_X)),
 				direction(event.getAxisValue(MotionEvent.AXIS_HAT_Y)));
 		// Logged when a stick crosses the dead zone, not once per event. A pad
