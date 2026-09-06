@@ -129,7 +129,20 @@ public class MainActivity extends KR2Activity {
 	 */
 	private static final float TAP_STEP_FRACTION = 0.05f;
 	private static final long FRAME_MS = 16;
-	private static final long CURSOR_HIDE_MS = 4000;
+	/**
+	 * How long the cursor sits still before it dims, and how faint it goes.
+	 * It used to disappear altogether, which is why dq-kirikiri-05's title
+	 * screen shows no ring at all although logcat has every press: nine
+	 * `input keyevent` presses half a second apart, then a screenshot, is
+	 * longer than the timeout, so the pointer was gone by the time the camera
+	 * looked. Worse than the missing proof, a pointer that vanishes takes with
+	 * it the only sign of where confirm will land -- on a handheld, where the
+	 * pad is the whole input, that is the one thing that must always be on
+	 * screen. So an idle cursor fades instead of leaving, and only a real
+	 * finger (which is a pointer of its own) puts it away.
+	 */
+	private static final long CURSOR_DIM_MS = 4000;
+	private static final float CURSOR_IDLE_ALPHA = 0.45f;
 	/** Arrow-key repeat from the right stick: one key, a pause, then a stream. */
 	private static final long SCROLL_FIRST_MS = 350;
 	private static final long SCROLL_REPEAT_MS = 110;
@@ -189,6 +202,7 @@ public class MainActivity extends KR2Activity {
 	private int hatX, hatY;
 	private int keyDirX, keyDirY;
 	private boolean pointerRunning, scrollRunning;
+	private boolean cursorShown;
 	private long pointerStart;
 	private long lastPadInput;
 	private boolean clickHeld;
@@ -204,7 +218,7 @@ public class MainActivity extends KR2Activity {
 			if (dx == 0f && dy == 0f) {
 				pointerRunning = false;
 				pointerStart = 0;
-				scheduleCursorHide();
+				scheduleCursorDim();
 				return;
 			}
 			long now = SystemClock.uptimeMillis();
@@ -232,12 +246,19 @@ public class MainActivity extends KR2Activity {
 		}
 	};
 
-	private final Runnable hideCursor = new Runnable() {
+	private final Runnable dimCursor = new Runnable() {
 		@Override
 		public void run() {
-			if (SystemClock.uptimeMillis() - lastPadInput < CURSOR_HIDE_MS) return;
+			long idle = SystemClock.uptimeMillis() - lastPadInput;
+			if (idle < CURSOR_DIM_MS) {
+				// Something moved after this was scheduled; wait out the rest
+				// rather than dropping the dim on the floor, which is what the
+				// old early return did.
+				handler.postDelayed(this, CURSOR_DIM_MS - idle);
+				return;
+			}
 			if (clickHeld || pointerRunning) return;
-			if (cursorView != null) cursorView.setVisibility(View.GONE);
+			if (cursorView != null) cursorView.setAlpha(CURSOR_IDLE_ALPHA);
 		}
 	};
 
@@ -286,6 +307,11 @@ public class MainActivity extends KR2Activity {
 		overlay = new FrameLayout(this);
 		overlay.setClickable(false);
 		overlay.setFocusable(false);
+		// The engine adds views of its own after this one (its system bar, for
+		// instance), and a later sibling draws on top by default. Elevation
+		// settles the order once, without touching the view tree every time
+		// the cursor moves.
+		overlay.setElevation(dp(8));
 
 		cursorView = new View(this);
 		GradientDrawable ring = new GradientDrawable();
@@ -439,7 +465,7 @@ public class MainActivity extends KR2Activity {
 				pointerStart = 0;
 				handler.removeCallbacks(movePointer);
 			}
-			scheduleCursorHide();
+			scheduleCursorDim();
 		}
 	}
 
@@ -471,12 +497,37 @@ public class MainActivity extends KR2Activity {
 			setCursor(root.getWidth() / 2f, root.getHeight() / 2f);
 		}
 		cursorView.setVisibility(View.VISIBLE);
-		handler.removeCallbacks(hideCursor);
+		cursorView.setAlpha(1f);
+		handler.removeCallbacks(dimCursor);
+		if (!cursorShown) {
+			cursorShown = true;
+			// Said once per appearance: a screenshot that shows no ring cannot
+			// tell "we never drew it" apart from "something drew over it", and
+			// dq-kirikiri-05 had to leave exactly that open.
+			Log.d(TAG, "cursor visible at " + cursorX + "," + cursorY);
+		}
 	}
 
-	private void scheduleCursorHide() {
-		handler.removeCallbacks(hideCursor);
-		handler.postDelayed(hideCursor, CURSOR_HIDE_MS);
+	private void scheduleCursorDim() {
+		handler.removeCallbacks(dimCursor);
+		handler.postDelayed(dimCursor, CURSOR_DIM_MS);
+	}
+
+	/**
+	 * A real finger takes the pointer away; the next pad input brings it back.
+	 * Two pointers on one screen, one of them stale, is worse than none. Only
+	 * events that arrive through the view hierarchy reach here -- the touches
+	 * this class synthesises for the pad go straight to super.
+	 */
+	@Override
+	public boolean dispatchTouchEvent(MotionEvent event) {
+		if (cursorShown && cursorView != null) {
+			cursorShown = false;
+			cursorView.setVisibility(View.GONE);
+			handler.removeCallbacks(dimCursor);
+			Log.d(TAG, "cursor hidden: the screen was touched");
+		}
+		return super.dispatchTouchEvent(event);
 	}
 
 	private void setCursor(float x, float y) {
@@ -605,7 +656,7 @@ public class MainActivity extends KR2Activity {
 				clickHeld = down;
 				sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
 			}
-			if (!down) scheduleCursorHide();
+			if (!down) scheduleCursorDim();
 			return true;
 		}
 		if ("menu".equals(action)) {
