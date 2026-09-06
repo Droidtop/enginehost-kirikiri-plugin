@@ -421,7 +421,9 @@ public class MainActivity extends KR2Activity {
 
 	// ---------------------------------------------------------------- pointer
 
-	private int motionLogBudget = 12;
+	private int stickLogBudget = 20;
+	private int hatLogBudget = 40;
+	private boolean stickActive, scrollActive;
 
 	@Override
 	public boolean dispatchGenericMotionEvent(MotionEvent event) {
@@ -433,20 +435,67 @@ public class MainActivity extends KR2Activity {
 		stickY = axis(event, "left_y");
 		scrollX = axis(event, "right_x");
 		scrollY = axis(event, "right_y");
-		// Many pads report their D-pad as a hat rather than as D-pad keys, and
-		// a hat arrives as motion, not as a key. Fold it into the same
-		// direction the D-pad keys feed, so the cursor moves either way.
-		hatX = direction(event.getAxisValue(MotionEvent.AXIS_HAT_X));
-		hatY = direction(event.getAxisValue(MotionEvent.AXIS_HAT_Y));
-		if (motionLogBudget > 0) {
-			motionLogBudget--;
-			Log.d(TAG, "Pad motion source=0x" + Integer.toHexString(event.getSource())
-					+ " pointer=" + pointerX() + "," + pointerY()
-					+ " scroll=" + scrollX + "," + scrollY);
+		applyHat(direction(event.getAxisValue(MotionEvent.AXIS_HAT_X)),
+				direction(event.getAxisValue(MotionEvent.AXIS_HAT_Y)));
+		// Logged when a stick crosses the dead zone, not once per event. A pad
+		// streams motion at sixty a second, so the old per-event budget of
+		// twelve bought two tenths of a second: the user's whole session shows
+		// one flick of the left stick and then nothing, and could not say
+		// whether the D-pad had ever arrived. A transition is rare enough that
+		// a budget covers a session.
+		boolean stickNow = stickX != 0f || stickY != 0f;
+		boolean scrollNow = scrollX != 0f || scrollY != 0f;
+		if ((stickNow != stickActive || scrollNow != scrollActive) && stickLogBudget > 0) {
+			stickLogBudget--;
+			stickActive = stickNow;
+			scrollActive = scrollNow;
+			Log.d(TAG, "Pad sticks source=0x" + Integer.toHexString(event.getSource())
+					+ " left=" + stickX + "," + stickY
+					+ " right=" + scrollX + "," + scrollY);
+		} else {
+			stickActive = stickNow;
+			scrollActive = scrollNow;
 		}
 		pointerChanged();
 		scrollChanged();
 		return true;
+	}
+
+	/**
+	 * A real pad's D-pad is a hat: it arrives as an axis on a motion event and
+	 * never as KEYCODE_DPAD_* at all. The console's pad is one of those -- its
+	 * device reports no SOURCE_DPAD, and the user's session has not a single
+	 * D-pad key in it -- and a hat used only to lean on the cursor's movement
+	 * ramp. So a tap of the D-pad moved the pointer about five pixels, sent no
+	 * key, and never even brought the pointer on screen: the D-pad did nothing,
+	 * exactly as reported, while the same presses sent as keys had worked.
+	 *
+	 * A hat now raises and drops the very same direction action a D-pad key
+	 * raises, so there is one mechanism for a direction however it arrives:
+	 * the definite first step, KiriKiri's own pad code where something holds
+	 * focus, the pointer appearing, and the ramp while it is held.
+	 */
+	private void applyHat(int x, int y) {
+		if (x != hatX) {
+			int was = hatX;
+			hatX = x;
+			if (was != 0) act(was < 0 ? "left" : "right", false);
+			if (x != 0) act(x < 0 ? "left" : "right", true);
+			if (hatLogBudget > 0) {
+				hatLogBudget--;
+				Log.d(TAG, "Pad hat X " + was + " -> " + x);
+			}
+		}
+		if (y != hatY) {
+			int was = hatY;
+			hatY = y;
+			if (was != 0) act(was < 0 ? "up" : "down", false);
+			if (y != 0) act(y < 0 ? "up" : "down", true);
+			if (hatLogBudget > 0) {
+				hatLogBudget--;
+				Log.d(TAG, "Pad hat Y " + was + " -> " + y);
+			}
+		}
 	}
 
 	private float axis(MotionEvent event, String action) {
@@ -462,8 +511,8 @@ public class MainActivity extends KR2Activity {
 		return 0;
 	}
 
-	private float pointerX() { return stickX != 0f ? stickX : (keyDirX != 0 ? keyDirX : hatX); }
-	private float pointerY() { return stickY != 0f ? stickY : (keyDirY != 0 ? keyDirY : hatY); }
+	private float pointerX() { return stickX != 0f ? stickX : keyDirX; }
+	private float pointerY() { return stickY != 0f ? stickY : keyDirY; }
 
 	/** Start or stop the cursor after anything that could have moved it. */
 	private void pointerChanged() {
@@ -554,6 +603,8 @@ public class MainActivity extends KR2Activity {
 		return super.dispatchTouchEvent(event);
 	}
 
+	private int sentPointerX = Integer.MIN_VALUE, sentPointerY = Integer.MIN_VALUE;
+
 	private void setCursor(float x, float y) {
 		View root = getWindow().getDecorView();
 		cursorX = Math.max(0f, Math.min(root.getWidth() - 1, x));
@@ -562,7 +613,18 @@ public class MainActivity extends KR2Activity {
 			cursorView.setX(cursorX - cursorView.getWidth() / 2f);
 			cursorView.setY(cursorY - cursorView.getHeight() / 2f);
 		}
-		sendPointerMove();
+		// Only when the pointer is somewhere else than the engine last heard.
+		// The movement runnable fires every frame for as long as a stick is
+		// held, whether or not that frame moved the cursor a whole pixel, and
+		// each call queues a mouse move onto the engine's own event queue --
+		// work the engine cannot tell from the last one, done ahead of the
+		// input that matters.
+		int px = (int) cursorX, py = (int) cursorY;
+		if (px != sentPointerX || py != sentPointerY) {
+			sentPointerX = px;
+			sentPointerY = py;
+			sendPointerMove();
+		}
 	}
 
 	/**
