@@ -191,6 +191,11 @@ extern "C" {
 		case 114 /* KEYCODE_CTRL_RIGHT */ : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_RIGHT_CTRL; break;
 		case 92  /* KEYCODE_PAGE_UP */    : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_UP; break;
 		case 93  /* KEYCODE_PAGE_DOWN */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_DOWN; break;
+		// KAG reads its auto-advance and backlog shortcuts as plain letters
+		// (MainWindow.processKeys tests #'A' and #'R'), so a pad's auto and
+		// history buttons have no other key to become.
+		case 29  /* KEYCODE_A */          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_A; break;
+		case 46  /* KEYCODE_R */          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_R; break;
 		default:
 			// A key nothing here understands is dropped silently otherwise,
 			// which is indistinguishable from the pad not working.

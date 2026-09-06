@@ -681,6 +681,10 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_CTRL_RIGHT:
                 case KeyEvent.KEYCODE_PAGE_UP:
                 case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, true);
                     return true;
                 default:
@@ -709,6 +713,10 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_CTRL_RIGHT:
                 case KeyEvent.KEYCODE_PAGE_UP:
                 case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, false);
                     return true;
                 default:
