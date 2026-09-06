@@ -79,6 +79,19 @@ public class MainActivity extends KR2Activity {
 	private static final float POINTER_SLOW_PX_S = 300f;
 	private static final float POINTER_FAST_PX_S = 1700f;
 	private static final long POINTER_RAMP_MS = 600;
+	/**
+	 * How far one tap of a direction moves the cursor, as a fraction of the
+	 * screen. A tap used to be worth whatever a single 16 ms frame happened to
+	 * cover -- five pixels, and only when that frame ran before the key came
+	 * back up. For a held D-pad that is invisible; for the synthetic
+	 * `input keyevent` presses this layer is meant to be testable with, the
+	 * down and the up arrive together and the frame usually loses the race, so
+	 * a press moved nothing at all. dq-kirikiri-03 is exactly that: eight
+	 * DPAD_RIGHT presses left the cursor where it started and the click landed
+	 * on background art instead of START. A tap is a definite step now, and a
+	 * hold still ramps from wherever that step put it.
+	 */
+	private static final float TAP_STEP_FRACTION = 0.05f;
 	private static final long FRAME_MS = 16;
 	private static final long CURSOR_HIDE_MS = 4000;
 	/** Arrow-key repeat from the right stick: one key, a pause, then a stream. */
@@ -380,10 +393,14 @@ public class MainActivity extends KR2Activity {
 				pointerStart = 0;
 				handler.post(movePointer);
 			}
-		} else if (pointerRunning) {
-			pointerRunning = false;
-			pointerStart = 0;
-			handler.removeCallbacks(movePointer);
+		} else {
+			// Unconditional: a tap that never started the runnable still left
+			// the cursor on screen, and nothing was going to take it away.
+			if (pointerRunning) {
+				pointerRunning = false;
+				pointerStart = 0;
+				handler.removeCallbacks(movePointer);
+			}
 			scheduleCursorHide();
 		}
 	}
@@ -483,11 +500,18 @@ public class MainActivity extends KR2Activity {
 	private boolean act(String action, boolean down) {
 		if ("up".equals(action) || "down".equals(action)
 				|| "left".equals(action) || "right".equals(action)) {
-			int value = down ? 1 : 0;
-			if ("left".equals(action)) keyDirX = -value;
-			else if ("right".equals(action)) keyDirX = value;
-			else if ("up".equals(action)) keyDirY = -value;
-			else keyDirY = value;
+			int dx = "left".equals(action) ? -1 : "right".equals(action) ? 1 : 0;
+			int dy = "up".equals(action) ? -1 : "down".equals(action) ? 1 : 0;
+			// Only the axis this action names, so pressing right while up is
+			// held does not restate up as well.
+			if (dx != 0) keyDirX = down ? dx : 0;
+			else keyDirY = down ? dy : 0;
+			if (down) {
+				showCursor(); // also centres the cursor the first time
+				View root = getWindow().getDecorView();
+				setCursor(cursorX + dx * root.getWidth() * TAP_STEP_FRACTION,
+						cursorY + dy * root.getHeight() * TAP_STEP_FRACTION);
+			}
 			pointerChanged();
 			return true;
 		}
