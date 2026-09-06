@@ -34,6 +34,8 @@
 #include "Platform.h"
 #include "platform/CCPlatformConfig.h"
 #include "dirent.h"
+#include <functional>
+#include <string>
 #include "TickCount.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -99,12 +101,132 @@ void TJS_INTF_METHOD tTVPFileMedia::NormalizePathName(ttstr &name)
 	}
 }
 //---------------------------------------------------------------------------
+//---------------------------------------------------------------------------
+// A save file that exists but holds nothing
+//---------------------------------------------------------------------------
+// KAG keeps its system variables in <name>.ksd and reads them strictly:
+// MainWindow.safeEvalStorage loads the file, demands that its first line begin
+// with "(const)", and throws otherwise, which loadSystemVariables turns into a
+// fatal "the system variable data is corrupted" dialog. The game then calls
+// System.exit itself, so the title screen is never reached again. A file that
+// is simply ABSENT costs nothing at all: the same function starts an empty set
+// of variables and the game runs, which is how KAG behaves on a first launch.
+//
+// So a .ksd left at zero length by a process that died between opening the
+// file and writing it is worse than no file, and it can never repair itself,
+// because the game exits before it is able to save. dq-kirikiri-04 was exactly
+// that: an earlier test run left Noble Works' savedata/datasc.ksd empty, and
+// every later launch died on it.
+//
+// An empty one is therefore reported as absent, and moved aside to
+// <name>.broken rather than deleted. KAG writes a rotating backup of its own
+// beside it (<name>.<serial>.bak) before each save; when one of those has
+// content the newest is copied back into place, since it is the file the game
+// itself would have loaded a moment before the truncation.
+//
+// Only a zero-length file counts as broken. A short but non-empty save cannot
+// be told from a legitimately small one without knowing each game's format,
+// and moving a file that might hold someone's progress aside on a guess is not
+// a trade worth making.
+//---------------------------------------------------------------------------
+void TVPListDir(const std::string &folder, std::function<void(const std::string&, int)> cb);
+
+static bool TVPIsSaveDataStorageName(const ttstr &name)
+{
+	const tjs_char *ext = TJS_W(".ksd");
+	tjs_int namelen = name.GetLen(), extlen = 4;
+	if(namelen <= extlen) return false;
+	const tjs_char *p = name.c_str() + namelen - extlen;
+	for(tjs_int i = 0; i < extlen; i++)
+	{
+		tjs_char c = p[i];
+		if(c >= TJS_W('A') && c <= TJS_W('Z')) c += TJS_W('a') - TJS_W('A');
+		if(c != ext[i]) return false;
+	}
+	return true;
+}
+
+// The newest non-empty <path>.<serial>.bak, or an empty string when KAG has
+// not written one yet. Backups whose serial is not a number are still
+// considered, ordered by name, so a game with another numbering is not
+// silently skipped.
+static std::string TVPNewestSaveDataBackup(const std::string &path)
+{
+	std::string::size_type slash = path.find_last_of("/\\");
+	std::string dir = slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+	std::string base = slash == std::string::npos ? path : path.substr(slash + 1);
+	std::string best, bestserial;
+	bool bestnumeric = false;
+	tjs_uint64 bestvalue = 0;
+	TVPListDir(dir, [&](const std::string &name, int mode) {
+		if(!(mode & S_IFREG)) return;
+		if(name.size() <= base.size() + 5) return; // base + '.' + serial + ".bak"
+		if(name.compare(0, base.size(), base) != 0) return;
+		if(name[base.size()] != '.') return;
+		if(name.compare(name.size() - 4, 4, ".bak") != 0) return;
+		std::string serial = name.substr(base.size() + 1, name.size() - base.size() - 5);
+		if(serial.empty()) return;
+		std::string full = dir + "/" + name;
+		tTVP_stat s;
+		if(!TVP_stat(full.c_str(), s) || s.st_size == 0) return;
+		bool numeric = serial.find_first_not_of("0123456789") == std::string::npos;
+		tjs_uint64 value = 0;
+		if(numeric)
+		{
+			for(std::string::size_type i = 0; i < serial.size(); i++)
+				value = value * 10 + (tjs_uint64)(serial[i] - '0');
+		}
+		bool better;
+		if(best.empty()) better = true;
+		else if(numeric != bestnumeric) better = numeric; // a numbered backup wins
+		else if(numeric) better = value >= bestvalue;
+		else better = serial >= bestserial;
+		if(better)
+		{
+			best = full;
+			bestserial = serial;
+			bestnumeric = numeric;
+			bestvalue = value;
+		}
+	});
+	return best;
+}
+
+static void TVPRepairEmptySaveData(const ttstr &localname)
+{
+	tTVP_stat s;
+	if(!TVP_stat(localname.c_str(), s)) return;      // absent: nothing to repair
+	if(!(s.st_mode & S_IFREG) || s.st_size != 0) return; // a real file with content
+
+	std::string path = localname.AsNarrowStdString();
+	std::string broken = path + ".broken";
+	if(!TVPRenameFile(path, broken))
+	{
+		TVPAddLog(ttstr(TJS_W("Empty save file ")) + localname +
+			TJS_W(" could not be moved aside; the game will see it as it is"));
+		return;
+	}
+	std::string backup = TVPNewestSaveDataBackup(path);
+	if(!backup.empty() && TVPCopyFile(backup, path))
+	{
+		TVPAddLog(ttstr(TJS_W("Empty save file ")) + localname +
+			TJS_W(" kept as .broken and restored from ") + ttstr(backup));
+		return;
+	}
+	TVPAddLog(ttstr(TJS_W("Empty save file ")) + localname +
+		TJS_W(" kept as .broken; starting from no save data"));
+}
+//---------------------------------------------------------------------------
 bool TJS_INTF_METHOD tTVPFileMedia::CheckExistentStorage(const ttstr &name)
 {
 	if(name.IsEmpty()) return false;
 
 	ttstr _name(name);
 	GetLocalName(_name);
+
+	// The one point every "is my save there?" question passes through, and the
+	// only place an empty one can be answered before a game acts on it.
+	if(TVPIsSaveDataStorageName(_name)) TVPRepairEmptySaveData(_name);
 
 	return TVPCheckExistentLocalFile(_name);
 }
