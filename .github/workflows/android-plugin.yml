@@ -58,6 +58,23 @@ jobs:
           curl --fail --location --retry 5 --output upstream.apk \
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/1.3.9_yuri/Kirikiroid2_yuri_1.3.9.apk
           7z x upstream.apk assets
+      # A Japanese game on a console has no Japanese font to fall back on: the
+      # best the engine could otherwise find is Android's Simplified-Chinese
+      # fallback face, whose kanji are the wrong forms, or nothing at all. This
+      # is the font half of what Locale Emulator does on Windows, and it is the
+      # face TVPInitFontNames tries first. Pinned to the Sans2.004 tag and
+      # checked by hash: byte for byte the file inside that release's
+      # 06_NotoSansCJKjp.zip. Licence: SIL Open Font License 1.1, shipped
+      # beside it and recorded in enginehost/LICENSES.md.
+      - name: Add the shipped Japanese font (Noto Sans CJK JP, OFL 1.1)
+        run: |
+          noto=https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-Regular.otf \
+            "$noto/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-LICENSE.txt \
+            "$noto/LICENSE"
+          echo "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5  assets/NotoSansCJKjp-Regular.otf" | sha256sum --check --strict -
+          echo "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  assets/NotoSansCJKjp-LICENSE.txt" | sha256sum --check --strict -
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
