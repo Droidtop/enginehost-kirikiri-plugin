@@ -31,8 +31,15 @@ permissions:
 # it had just obsoleted, so a five-push fix session burned five builds and
 # could email five failures for one problem. Keyed on the ref, so branches
 # and PRs never cancel each other.
+#
+# A promotion gets a group of its own, keyed on its run id, and so is never
+# cancelled by anything: it publishes one named, tested commit, and the next
+# push to the branch it was dispatched from has nothing to do with it. Keying
+# it on the ref cost exactly that once -- the dispatch that was to publish
+# build 77 to the testing channel was killed by the next commit landing on
+# plugin/stable minutes later.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
   cancel-in-progress: true
 
 jobs:
