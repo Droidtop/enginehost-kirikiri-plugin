@@ -703,8 +703,21 @@ public class MainActivity extends KR2Activity {
 			if (down) {
 				showCursor(); // also centres the cursor the first time
 				View root = getWindow().getDecorView();
+				float wasX = cursorX, wasY = cursorY;
 				setCursor(cursorX + dx * root.getWidth() * TAP_STEP_FRACTION,
 						cursorY + dy * root.getHeight() * TAP_STEP_FRACTION);
+				// Where the step actually left it. showCursor's own line is
+				// printed BEFORE this runs, and on the very first direction it
+				// therefore always reads the centre of the screen -- which was
+				// read off dq-kirikiri-06 as the press having failed to move
+				// anything, when the cursor had in fact moved right after it.
+				// A log that has to be read in the right order is a log that
+				// will be read in the wrong one.
+				if (stepLogBudget > 0) {
+					stepLogBudget--;
+					Log.d(TAG, "cursor " + action + ": " + wasX + "," + wasY
+							+ " -> " + cursorX + "," + cursorY);
+				}
 				// A direction also carries KiriKiri's own pad code, for the
 				// screens that read one: a yes/no dialog steps between its
 				// buttons on VK_PADLEFT and VK_PADRIGHT. Only while something
@@ -780,6 +793,7 @@ public class MainActivity extends KR2Activity {
 	}
 
 	private int unboundLogBudget = 8;
+	private int stepLogBudget = 40;
 
 	/**
 	 * What an Enginehost action means to a KAG game, as the virtual key the
