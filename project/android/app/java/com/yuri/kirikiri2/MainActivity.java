@@ -130,10 +130,29 @@ public class MainActivity extends KR2Activity {
 	private static final long VK_HOLD_MS = 80;
 
 	private static final float STICK_DEADZONE = 0.25f;
-	/** Pointer speed at the instant a push begins, and after it has ramped. */
-	private static final float POINTER_SLOW_PX_S = 300f;
-	private static final float POINTER_FAST_PX_S = 1700f;
-	private static final long POINTER_RAMP_MS = 600;
+	/**
+	 * Pointer speed at the instant a push begins, and after it has ramped.
+	 *
+	 * These used to be 300, 1700 and 600 ms, and that is what made the D-pad
+	 * look as if only two of its four directions worked. Integrated over the
+	 * 16 ms frame, the old ramp carries the pointer 462 px in 600 ms and
+	 * 1142 px in a second, on a screen 1920 x 1080. So ONE ordinary press of
+	 * up -- half a second, which is what a person does when they are looking
+	 * for a pointer they cannot see -- takes it from the middle of the screen
+	 * to y = 0 and leaves it there, and one press of left takes it to x = 0.
+	 * Pinned in the top-left corner, up and left do nothing whatever, for as
+	 * long as the game runs, while down and right still move: exactly the
+	 * report ("moves occasionally, and only down and right"). Nothing in the
+	 * hat or the axis code has a sign the wrong way round; the screen edge is
+	 * the thing that swallowed two directions.
+	 *
+	 * A pointer has to be aimable, so a press moves it a distance a person
+	 * can predict: about 190 px in half a second, and a full sweep of the
+	 * long side takes a bit over two seconds of holding.
+	 */
+	private static final float POINTER_SLOW_PX_S = 260f;
+	private static final float POINTER_FAST_PX_S = 900f;
+	private static final long POINTER_RAMP_MS = 900;
 	/**
 	 * How far one tap of a direction moves the cursor, as a fraction of the
 	 * screen. A tap used to be worth whatever a single 16 ms frame happened to
@@ -216,6 +235,14 @@ public class MainActivity extends KR2Activity {
 	private View cursorView;
 	private TextView legendView;
 	private float cursorX = -1f, cursorY = -1f;
+	/**
+	 * Whether the pointer has ever been put somewhere. "Nowhere yet" used to
+	 * be read off the coordinate being negative, which setCursor clamps to
+	 * zero the first time anything moves it -- so the top and left edges of
+	 * the screen were indistinguishable from "no pointer", and a pointer
+	 * resting there sent the engine no mouse move at all.
+	 */
+	private boolean cursorPlaced;
 	private float stickX, stickY;
 	private float scrollX, scrollY;
 	private int hatX, hatY;
@@ -565,7 +592,7 @@ public class MainActivity extends KR2Activity {
 
 	private void showCursor() {
 		if (cursorView == null) return;
-		if (cursorX < 0f) {
+		if (!cursorPlaced) {
 			View root = getWindow().getDecorView();
 			setCursor(root.getWidth() / 2f, root.getHeight() / 2f);
 		}
@@ -609,9 +636,20 @@ public class MainActivity extends KR2Activity {
 		View root = getWindow().getDecorView();
 		cursorX = Math.max(0f, Math.min(root.getWidth() - 1, x));
 		cursorY = Math.max(0f, Math.min(root.getHeight() - 1, y));
+		cursorPlaced = true;
 		if (cursorView != null) {
-			cursorView.setX(cursorX - cursorView.getWidth() / 2f);
-			cursorView.setY(cursorY - cursorView.getHeight() / 2f);
+			// The hotspot may sit on the very edge -- a KAG screen can have
+			// something in the corner -- but the RING is kept whole on screen
+			// rather than centred on the hotspot and half outside it. At 0,0
+			// the old placement drew three quarters of the ring off the panel,
+			// over the letterbox, so a pointer that had run into the corner
+			// was invisible as well as immovable and there was nothing on
+			// screen to say where it had gone.
+			float ringW = cursorView.getWidth(), ringH = cursorView.getHeight();
+			float mostX = Math.max(0f, root.getWidth() - ringW);
+			float mostY = Math.max(0f, root.getHeight() - ringH);
+			cursorView.setX(Math.max(0f, Math.min(mostX, cursorX - ringW / 2f)));
+			cursorView.setY(Math.max(0f, Math.min(mostY, cursorY - ringH / 2f)));
 		}
 		// Only when the pointer is somewhere else than the engine last heard.
 		// The movement runnable fires every frame for as long as a stick is
@@ -634,8 +672,8 @@ public class MainActivity extends KR2Activity {
 	 * through the view hierarchy would be.
 	 */
 	private void sendPointerMove() {
+		if (!cursorPlaced) return;
 		float x = cursorX, y = cursorY;
-		if (x < 0f) return;
 		View gl = getGLSurfaceView();
 		if (gl != null) {
 			gl.getLocationInWindow(viewLocation);
@@ -649,7 +687,7 @@ public class MainActivity extends KR2Activity {
 
 	/** A touch at the cursor, delivered to the game the way a finger would be. */
 	private void sendTouch(int action) {
-		if (cursorX < 0f) showCursor();
+		if (!cursorPlaced) showCursor();
 		long now = SystemClock.uptimeMillis();
 		if (action == MotionEvent.ACTION_DOWN) clickDownTime = now;
 		MotionEvent touch = MotionEvent.obtain(clickDownTime, now, action, cursorX, cursorY, 0);
@@ -715,8 +753,16 @@ public class MainActivity extends KR2Activity {
 				// will be read in the wrong one.
 				if (stepLogBudget > 0) {
 					stepLogBudget--;
-					Log.d(TAG, "cursor " + action + ": " + wasX + "," + wasY
-							+ " -> " + cursorX + "," + cursorY);
+					// A direction that changed nothing is named as such. Told
+					// apart in the log, "the hat never arrived" and "the
+					// pointer was already against that edge" look identical
+					// from the outside, and the second one cost a whole round
+					// trip to the console to find.
+					Log.d(TAG, wasX == cursorX && wasY == cursorY
+							? "cursor " + action + ": already against that edge at "
+									+ cursorX + "," + cursorY
+							: "cursor " + action + ": " + wasX + "," + wasY
+									+ " -> " + cursorX + "," + cursorY);
 				}
 				// A direction also carries KiriKiri's own pad code, for the
 				// screens that read one: a yes/no dialog steps between its
