@@ -68,6 +68,7 @@ jobs:
       # beside it and recorded in enginehost/LICENSES.md.
       - name: Add the shipped Japanese font (Noto Sans CJK JP, OFL 1.1)
         run: |
+          mkdir -p assets
           noto=https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004
           curl --fail --location --retry 5 --output assets/NotoSansCJKjp-Regular.otf \
             "$noto/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
