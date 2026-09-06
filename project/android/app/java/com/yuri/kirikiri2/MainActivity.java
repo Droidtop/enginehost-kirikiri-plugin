@@ -10,7 +10,6 @@ import android.util.Log;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.InputDevice;
-import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
@@ -59,7 +58,7 @@ import org.tvp.kirikiri2.KR2Activity;
  *
  * Keys. cancel, menu, skip, auto, history and the page actions become the
  * keys this engine and KAG actually read; what is behind each is spelled out
- * in {@link #keyForAction}. Which pad button carries which action is the
+ * in {@link #vkForAction}. Which pad button carries which action is the
  * person's choice in Enginehost's controller settings, handed over as the
  * CONTROLLER_BINDINGS extra; {@link #DEFAULT_KEY_ACTIONS} only stands in when
  * no map arrives at all.
@@ -101,6 +100,26 @@ public class MainActivity extends KR2Activity {
 	private static final int VK_PADUP = 0x1B6;
 	private static final int VK_PADRIGHT = 0x1B7;
 	private static final int VK_PADDOWN = 0x1B8;
+	/**
+	 * The rest of what a KAG game reads, as the Windows virtual-key codes
+	 * KiriKiri speaks. Every one of these used to be sent as an Android
+	 * KeyEvent instead, in the hope that the engine's GL view would pick it
+	 * up; the user's own session says it never did -- Escape and Page Up both
+	 * came back handled=false, three presses each -- which is why the pad
+	 * could go forward and not back.
+	 */
+	private static final int VK_ESCAPE = 0x1B;
+	private static final int VK_CONTROL = 0x11;
+	private static final int VK_PRIOR = 0x21;
+	private static final int VK_NEXT = 0x22;
+	private static final int VK_LEFT = 0x25;
+	private static final int VK_UP = 0x26;
+	private static final int VK_RIGHT = 0x27;
+	private static final int VK_DOWN = 0x28;
+	private static final int VK_A = 0x41;
+	private static final int VK_B = 0x42;
+	private static final int VK_F = 0x46;
+	private static final int VK_R = 0x52;
 	/**
 	 * How long a KiriKiri key is held before its release is delivered. KAG
 	 * re-tests System.getKeyState when it finally processes the queued press,
@@ -236,12 +255,12 @@ public class MainActivity extends KR2Activity {
 	private final Runnable repeatScroll = new Runnable() {
 		@Override
 		public void run() {
-			int key = scrollKey();
-			if (key == KeyEvent.KEYCODE_UNKNOWN) {
+			int vk = scrollVK();
+			if (vk == 0) {
 				scrollRunning = false;
 				return;
 			}
-			tapKey(key);
+			tapVK(vk);
 			handler.postDelayed(this, SCROLL_REPEAT_MS);
 		}
 	};
@@ -469,24 +488,29 @@ public class MainActivity extends KR2Activity {
 		}
 	}
 
-	private int scrollKey() {
-		if (scrollY < 0f) return KeyEvent.KEYCODE_DPAD_UP;
-		if (scrollY > 0f) return KeyEvent.KEYCODE_DPAD_DOWN;
-		if (scrollX < 0f) return KeyEvent.KEYCODE_DPAD_LEFT;
-		if (scrollX > 0f) return KeyEvent.KEYCODE_DPAD_RIGHT;
-		return KeyEvent.KEYCODE_UNKNOWN;
+	/**
+	 * The right stick scrolls, in the keys KAG's backlog listens for: up and
+	 * down a line, left and right a page (backlog.tjs reads VK_UP, VK_DOWN,
+	 * VK_PRIOR and VK_NEXT, and takes left and right as the page keys).
+	 */
+	private int scrollVK() {
+		if (scrollY < 0f) return VK_UP;
+		if (scrollY > 0f) return VK_DOWN;
+		if (scrollX < 0f) return VK_PRIOR;
+		if (scrollX > 0f) return VK_NEXT;
+		return 0;
 	}
 
 	private void scrollChanged() {
-		int key = scrollKey();
-		if (key == KeyEvent.KEYCODE_UNKNOWN) {
+		int vk = scrollVK();
+		if (vk == 0) {
 			scrollRunning = false;
 			handler.removeCallbacks(repeatScroll);
 			return;
 		}
 		if (scrollRunning) return;
 		scrollRunning = true;
-		tapKey(key);
+		tapVK(vk);
 		handler.postDelayed(repeatScroll, SCROLL_FIRST_MS);
 	}
 
@@ -671,43 +695,57 @@ public class MainActivity extends KR2Activity {
 					legendShown = false;
 					if (legendView != null) legendView.setVisibility(View.GONE);
 				} else {
-					tapKey(KeyEvent.KEYCODE_MENU);
+					org.tvp.kirikiri2.KR2Activity.nativeKeyAction(KeyEvent.KEYCODE_MENU, true);
+					org.tvp.kirikiri2.KR2Activity.nativeKeyAction(KeyEvent.KEYCODE_MENU, false);
 				}
 			}
 			return true;
 		}
-		int key = keyForAction(action);
-		if (key == KeyEvent.KEYCODE_UNKNOWN) {
-			return true; // an action a KAG game has nothing to do with
-		}
-		if ("skip".equals(action)) {
-			injectKey(key, down); // skip is a held key, so mirror the press
+		int vk = vkForAction(action);
+		if (vk == 0) {
+			if (down && unboundLogBudget > 0) {
+				unboundLogBudget--;
+				Log.d(TAG, "Action " + action + " arrived, and a KAG game has no key for it");
+			}
 			return true;
 		}
-		if (down) tapKey(key);
+		if ("skip".equals(action)) {
+			sendVKKey(vk, down); // skip is a held key, so mirror the press
+			return true;
+		}
+		if (down) tapVK(vk);
 		return true;
 	}
 
+	private int unboundLogBudget = 8;
+
 	/**
-	 * What an Enginehost action means to a KAG game, as the key it reads.
-	 * Read off Noble Works' own MainWindow.processKeys, which is stock KAG:
-	 * Escape is what a right click does, Control held is skip, A is auto, R is
-	 * the backlog and the page keys scroll it. Menu is Kirikiroid2's own
-	 * system menu (save, load, settings), handled above rather than here.
+	 * What an Enginehost action means to a KAG game, as the virtual key the
+	 * engine reads. This is stock KAG3's own keyboard interface, confirmed
+	 * against Noble Works' MainWindow.processKeys: Control held is skip, A
+	 * toggles auto, R opens the backlog, Escape is what a right click does,
+	 * B steps back one text and F runs forward to the next stop.
 	 *
-	 * quick_save and quick_load are deliberately absent: KAG's S and L
-	 * shortcuts only exist in free-save-data mode, and a shoulder button that
-	 * silently overwrites a save is worse than one that does nothing. Saving
-	 * is on the system menu.
+	 * page_previous and page_next are B and F rather than the page keys. The
+	 * previous page of a visual novel is the line before this one, which is
+	 * what KAG's goBackByKey gives; the page keys only mean anything inside
+	 * the backlog, and the backlog is scrolled by the right stick below.
+	 * Going back was the user's first complaint and it had no button at all.
+	 *
+	 * quick_save and quick_load stay unbound: KAG's S and L shortcuts only
+	 * exist in free-save-data mode, and a shoulder button that silently
+	 * overwrites a save is worse than one that does nothing. Saving is on the
+	 * system menu. They are logged rather than swallowed, so a person who
+	 * presses one can see that it was received and meant nothing.
 	 */
-	private static int keyForAction(String action) {
-		if ("cancel".equals(action)) return KeyEvent.KEYCODE_ESCAPE;
-		if ("skip".equals(action)) return KeyEvent.KEYCODE_CTRL_LEFT;
-		if ("auto".equals(action)) return KeyEvent.KEYCODE_A;
-		if ("history".equals(action)) return KeyEvent.KEYCODE_R;
-		if ("page_previous".equals(action)) return KeyEvent.KEYCODE_PAGE_UP;
-		if ("page_next".equals(action)) return KeyEvent.KEYCODE_PAGE_DOWN;
-		return KeyEvent.KEYCODE_UNKNOWN;
+	private static int vkForAction(String action) {
+		if ("cancel".equals(action)) return VK_ESCAPE;
+		if ("skip".equals(action)) return VK_CONTROL;
+		if ("auto".equals(action)) return VK_A;
+		if ("history".equals(action)) return VK_R;
+		if ("page_previous".equals(action)) return VK_B;
+		if ("page_next".equals(action)) return VK_F;
+		return 0;
 	}
 
 	/**
@@ -729,25 +767,10 @@ public class MainActivity extends KR2Activity {
 		}, VK_HOLD_MS);
 	}
 
-	private int injectLogBudget = 40;
-
-	private boolean injectKey(int keyCode, boolean down) {
-		long now = SystemClock.uptimeMillis();
-		KeyEvent event = new KeyEvent(now, now,
-				down ? KeyEvent.ACTION_DOWN : KeyEvent.ACTION_UP, keyCode, 0, 0,
-				KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
-		boolean handled = super.dispatchKeyEvent(event);
-		if (injectLogBudget > 0) {
-			injectLogBudget--;
-			Log.d(TAG, "Injected " + KeyEvent.keyCodeToString(keyCode) + (down ? " down" : " up")
-					+ ", handled=" + handled);
-		}
-		return handled;
-	}
-
-	private void tapKey(int keyCode) {
-		injectKey(keyCode, true);
-		injectKey(keyCode, false);
+	/** A press and its release, the release held long enough to be seen. */
+	private void tapVK(int vk) {
+		sendVKKey(vk, true);
+		sendVKKey(vk, false);
 	}
 
 	/** The mapping as it actually stands, so the legend can never lie. */
