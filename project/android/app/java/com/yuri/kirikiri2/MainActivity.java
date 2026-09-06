@@ -40,8 +40,17 @@ import org.tvp.kirikiri2.KR2Activity;
  * so arrow-key focus traversal cannot even start on a title screen. The left
  * stick and the D-pad therefore drive a cursor drawn over the game, with
  * acceleration so a tap nudges and a held push crosses the screen, and
- * confirm presses a touch at the cursor. That is one mechanism for pointing,
- * used by both, rather than a cursor for the stick and keys for the D-pad.
+ * confirm presses a touch at the cursor -- or Enter, when something holds
+ * keyboard focus for the cursor to have put it there. That is one mechanism
+ * for pointing, used by both, rather than a cursor for the stick and keys for
+ * the D-pad.
+ *
+ * Pointing at something. The pointer is drawn here, over the game, but the
+ * engine is told where it is as well: every step of it is delivered as a real
+ * mouse move ({@link #nativePointerMove}), which is what makes a KAG screen
+ * answer it. Noble Works' choices take focus from onMouseEnter and its buttons
+ * highlight from a mouse move, and none of that could happen while the pointer
+ * was only a picture the engine learned about when a touch landed.
  *
  * Reading. The right stick sends arrow keys, repeating while it is held.
  * Arrow keys are what a KAG list layer reads once one is open -- the backlog
@@ -73,6 +82,33 @@ public class MainActivity extends KR2Activity {
 		// already-loaded library is a no-op.
 		System.loadLibrary("krkr2yuri");
 	}
+
+	// The engine side of the pointer and the pad. What each does is documented
+	// over its definition in MainScene.cpp, under "The enginehost wrapper's
+	// pointer and pad".
+	private static native void nativePointerMove(float x, float y);
+	private static native void nativeVKKey(int vk, boolean down);
+	private static native boolean nativeHasFocusedLayer();
+
+	/**
+	 * KiriKiri's own virtual key codes (the engine's tvpinputdefs.h). The pad
+	 * ones are what a KiriKiri game expects from a gamepad and cannot get from
+	 * an Android key code: Noble Works' YesNoDialog.tjs moves between its yes
+	 * and no buttons on VK_PADLEFT and VK_PADRIGHT.
+	 */
+	private static final int VK_RETURN = 0x0D;
+	private static final int VK_PADLEFT = 0x1B5;
+	private static final int VK_PADUP = 0x1B6;
+	private static final int VK_PADRIGHT = 0x1B7;
+	private static final int VK_PADDOWN = 0x1B8;
+	/**
+	 * How long a KiriKiri key is held before its release is delivered. KAG
+	 * re-tests System.getKeyState when it finally processes the queued press,
+	 * so a press and release that arrive in the same millisecond -- which is
+	 * what `adb shell input keyevent` sends, and what a quick tap can be --
+	 * would be over before the engine ever looked.
+	 */
+	private static final long VK_HOLD_MS = 80;
 
 	private static final float STICK_DEADZONE = 0.25f;
 	/** Pointer speed at the instant a push begins, and after it has ramped. */
@@ -156,6 +192,8 @@ public class MainActivity extends KR2Activity {
 	private long pointerStart;
 	private long lastPadInput;
 	private boolean clickHeld;
+	private boolean confirmAsKey;
+	private final int[] viewLocation = new int[2];
 	private long clickDownTime;
 	private boolean legendShown;
 
@@ -449,6 +487,25 @@ public class MainActivity extends KR2Activity {
 			cursorView.setX(cursorX - cursorView.getWidth() / 2f);
 			cursorView.setY(cursorY - cursorView.getHeight() / 2f);
 		}
+		sendPointerMove();
+	}
+
+	/**
+	 * Where the pointer is, as a mouse move the game can answer. The engine
+	 * takes view coordinates, so the pointer -- which is placed over the whole
+	 * window -- is offset into the GL view first, exactly as a touch dispatched
+	 * through the view hierarchy would be.
+	 */
+	private void sendPointerMove() {
+		float x = cursorX, y = cursorY;
+		if (x < 0f) return;
+		View gl = getGLSurfaceView();
+		if (gl != null) {
+			gl.getLocationInWindow(viewLocation);
+			x -= viewLocation[0];
+			y -= viewLocation[1];
+		}
+		nativePointerMove(x, y);
 	}
 
 	private int touchLogBudget = 20;
@@ -511,18 +568,43 @@ public class MainActivity extends KR2Activity {
 				View root = getWindow().getDecorView();
 				setCursor(cursorX + dx * root.getWidth() * TAP_STEP_FRACTION,
 						cursorY + dy * root.getHeight() * TAP_STEP_FRACTION);
+				// A direction also carries KiriKiri's own pad code, for the
+				// screens that read one: a yes/no dialog steps between its
+				// buttons on VK_PADLEFT and VK_PADRIGHT. Only while something
+				// holds focus -- with nothing focused the pointer is the whole
+				// mechanism, and the engine turns a pad direction into a move
+				// of its own emulated cursor, which would be a second,
+				// invisible pointer fighting this one.
+				if (nativeHasFocusedLayer()) {
+					int pad = dx < 0 ? VK_PADLEFT : dx > 0 ? VK_PADRIGHT
+							: dy < 0 ? VK_PADUP : VK_PADDOWN;
+					sendVKKey(pad, true);
+					sendVKKey(pad, false);
+				}
 			}
 			pointerChanged();
 			return true;
 		}
 		if ("confirm".equals(action)) {
-			// Always a click at the cursor, never Enter. KAG's Enter path
-			// re-tests System.getKeyState when the queued event is finally
-			// processed, so a short press can be dropped there, while a click
-			// is what every clickable layer answers anyway.
+			// Exactly one of two things, and never both. When something holds
+			// keyboard focus -- a choice the pointer is hovering, the button a
+			// yes/no dialog focuses for itself -- Enter activates it, which is
+			// what the focused layer is waiting for. Otherwise it is a click
+			// where the pointer is, which is what a KAG title screen, message
+			// window and image map all answer.
+			//
+			// Both would be wrong rather than merely redundant: a focused
+			// ButtonLayer clicks ITSELF on Enter (its own onKeyUp does), so a
+			// click on top of that activates it twice, and a yes/no dialog
+			// answered twice closes something it was never asked about.
 			showCursor();
-			clickHeld = down;
-			sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
+			if (down) confirmAsKey = nativeHasFocusedLayer();
+			if (confirmAsKey) {
+				sendVKKey(VK_RETURN, down);
+			} else {
+				clickHeld = down;
+				sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
+			}
 			if (!down) scheduleCursorHide();
 			return true;
 		}
@@ -575,6 +657,25 @@ public class MainActivity extends KR2Activity {
 		if ("page_previous".equals(action)) return KeyEvent.KEYCODE_PAGE_UP;
 		if ("page_next".equals(action)) return KeyEvent.KEYCODE_PAGE_DOWN;
 		return KeyEvent.KEYCODE_UNKNOWN;
+	}
+
+	/**
+	 * A KiriKiri key, straight to the window's layer tree. Cancel keeps its
+	 * Escape and skip its Control rather than gaining VK_PAD2 and VK_PAD4 as
+	 * well: Noble Works' YesNoDialog closes on Escape AND on VK_PAD2, so a
+	 * button that sent both would answer the dialog twice.
+	 */
+	private void sendVKKey(final int vk, boolean down) {
+		if (down) {
+			nativeVKKey(vk, true);
+			return;
+		}
+		handler.postDelayed(new Runnable() {
+			@Override
+			public void run() {
+				nativeVKKey(vk, false);
+			}
+		}, VK_HOLD_MS);
 	}
 
 	private int injectLogBudget = 40;
