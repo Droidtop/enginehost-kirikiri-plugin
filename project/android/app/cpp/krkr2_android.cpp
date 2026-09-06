@@ -214,6 +214,45 @@ extern "C" {
 		return JNI_TRUE;
 	}
 
+	// The wrapper's pointer and pad. MainActivity.java decides what a button
+	// means and where the pointer is; these three carry that into the engine.
+	// What each one does to it is documented over their definitions in
+	// MainScene.cpp, under "The enginehost wrapper's pointer and pad".
+
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativePointerMove(
+		JNIEnv * env, jclass cls, jfloat x, jfloat y) {
+		float px = x, py = y;
+		Android_PushEvents([px, py](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperPointerMove(px, py);
+		});
+	}
+
+	static int _wrapperKeyLogBudget = 40;
+
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeVKKey(
+		JNIEnv * env, jclass cls, jint vk, jboolean down) {
+		int code = vk;
+		bool press = down == JNI_TRUE;
+		if (_wrapperKeyLogBudget > 0) {
+			--_wrapperKeyLogBudget;
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"wrapper key: VK 0x%x %s", code, press ? "down" : "up");
+		}
+		Android_PushEvents([code, press](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperKey(code, press);
+		});
+	}
+
+	JNIEXPORT jboolean JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeHasFocusedLayer(
+		JNIEnv * env, jclass cls) {
+		// A flag the engine's own thread refreshes once a frame, so this can
+		// be answered from the activity's thread without touching the layer
+		// tree from it.
+		return TVPMainScene::wrapperHasFocusedLayer() ? JNI_TRUE : JNI_FALSE;
+	}
+
 	JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(JNIEnv* env, jclass cls, jstring text) {
 		const char* pszText = env->GetStringUTFChars(text, NULL);
 		if (pszText && *pszText) {

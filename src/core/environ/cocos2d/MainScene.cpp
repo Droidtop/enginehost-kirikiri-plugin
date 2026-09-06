@@ -33,6 +33,8 @@
 #include "VideoOvlIntf.h"
 #include "Exception.h"
 #include "win32/SystemControl.h"
+#include "DrawDevice.h"
+#include <atomic>
 
 USING_NS_CC;
 
@@ -63,6 +65,10 @@ static tjs_uint8 _scancode[0x200];
 static tjs_uint16 _keymap[0x200];
 /** How many key events still get a trace line (see onKeyPressed). */
 static int _keyTraceBudget = 40;
+/** Does any layer hold keyboard focus? Sampled once a frame; see onWrapperKey. */
+static std::atomic<bool> _wrapperFocusedLayer(false);
+/** How many wrapper pointer moves still get a trace line. */
+static int _wrapperCursorTraceBudget = 8;
 static Label *_fpsLabel = nullptr;
 
 #include "CCKeyCodeConv.h"
@@ -1799,6 +1805,19 @@ void TVPOnError();
 tjs_uint TVPGetGraphicCacheTotalBytes();
 void TVPMainScene::update(float delta) {
 	::Application->Run();
+	// The wrapper's confirm has to know, from the Android thread, whether
+	// anything holds keyboard focus. Reading the layer tree from that thread
+	// is not safe, so the answer is sampled here, on the engine's own thread,
+	// once a frame -- never more than one frame stale, which is far finer than
+	// a person can press a button.
+	{
+		bool focused = false;
+		if (_currentWindowLayer && _currentWindowLayer->TJSNativeInstance) {
+			iTVPDrawDevice *device = _currentWindowLayer->TJSNativeInstance->GetDrawDevice();
+			if (device) focused = device->GetFocusedLayer() != nullptr;
+		}
+		_wrapperFocusedLayer.store(focused, std::memory_order_relaxed);
+	}
 //	if (_currentWindowLayer) _currentWindowLayer->UpdateOverlay();
 	iTVPTexture2D::RecycleProcess();
 	//_ResotreGLStatues();
@@ -2324,6 +2343,76 @@ void TVPMainScene::onPadKeyUp(cocos2d::Controller* ctrl, int keyCode, cocos2d::E
 
 void TVPMainScene::onPadKeyRepeat(cocos2d::Controller* ctrl, int code, cocos2d::Event *e) {
 
+}
+
+//---------------------------------------------------------------------------
+// The enginehost wrapper's pointer and pad
+//---------------------------------------------------------------------------
+// cocos2d-x 3.17.2 has no controller plumbing on Android, so the wrapper's
+// activity is this family's whole input layer: it draws the pointer a stick or
+// D-pad moves and decides what each button means. Two things it cannot do from
+// Java, and they are these.
+//
+// A mouse MOVE. The wrapper's pointer was a picture over the game and nothing
+// else -- the engine only ever learned where it was when a touch landed. So a
+// KAG button was never hovered, and everything a KAG screen hangs off hovering
+// stayed dead: Noble Works' choices take focus from onMouseEnter and its
+// buttons highlight from a mouse move. onWrapperPointerMove gives the engine
+// the same mouse-move event a real mouse would, in the same coordinates a
+// touch arrives in, so the pointer now points at something as far as the game
+// is concerned.
+//
+// A key by VK code. onWrapperKey posts one straight to the window's layer
+// tree, which is what lets the wrapper deliver two things the Android key path
+// cannot express: KiriKiri's own pad codes (VK_PADLEFT and friends, which
+// Noble Works' YesNoDialog reads to move between yes and no), and a confirm
+// that activates whatever holds focus. It deliberately does NOT go through
+// InternalKeyDown: that path turns arrow and pad keys into movements of the
+// engine's own emulated mouse when a game has switched mouse-key mode on, and
+// two pointers fighting over one screen is worse than none.
+//---------------------------------------------------------------------------
+void TVPMainScene::onWrapperPointerMove(float viewX, float viewY) {
+	if (!_currentWindowLayer || !_currentWindowLayer->PrimaryLayerArea) return;
+	if (_windowMgrOverlay) return;
+	Director *director = Director::getInstance();
+	GLView *glview = director->getOpenGLView();
+	if (!glview) return;
+	// The same two steps a touch takes on its way in (GLView::handleTouchesBegin
+	// then Touch::getLocation), so the pointer and the click it fires can never
+	// disagree about where they are.
+	const Rect &viewport = glview->getViewPortRect();
+	Vec2 ui((viewX - viewport.origin.x) / glview->getScaleX(),
+		(viewY - viewport.origin.y) / glview->getScaleY());
+	Vec2 pt = director->convertToGL(ui);
+	_currentWindowLayer->onMouseMove(pt);
+	if (_wrapperCursorTraceBudget > 0) {
+		--_wrapperCursorTraceBudget;
+		char trace[128];
+		snprintf(trace, sizeof(trace), "wrapper pointer: view %.0f,%.0f -> game %d,%d",
+			viewX, viewY, _currentWindowLayer->_LastMouseX, _currentWindowLayer->_LastMouseY);
+		TVPAddLog(ttstr(std::string(trace)));
+	}
+}
+
+void TVPMainScene::onWrapperKey(int vk, bool down) {
+	if (!UINode->getChildren().empty()) return; // one of the engine's own forms is up
+	if (vk <= 0 || vk >= 0x200) return;
+	if (!_currentWindowLayer || !_currentWindowLayer->TJSNativeInstance) return;
+	if (down) {
+		_scancode[vk] = 0x11;
+		TVPPostInputEvent(new tTVPOnKeyDownInputEvent(_currentWindowLayer->TJSNativeInstance,
+			vk, TVPGetCurrentShiftKeyState()));
+	} else {
+		bool wasPressed = (_scancode[vk] & 1) != 0;
+		_scancode[vk] &= 0x10;
+		if (wasPressed)
+			TVPPostInputEvent(new tTVPOnKeyUpInputEvent(_currentWindowLayer->TJSNativeInstance,
+				vk, TVPGetCurrentShiftKeyState()));
+	}
+}
+
+bool TVPMainScene::wrapperHasFocusedLayer() {
+	return _wrapperFocusedLayer.load(std::memory_order_relaxed);
 }
 
 float TVPMainScene::convertCursorScale(float val/*0 ~ 1*/) {
