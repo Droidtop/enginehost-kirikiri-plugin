@@ -35,6 +35,8 @@
 #include "win32/SystemControl.h"
 #include "DrawDevice.h"
 #include <atomic>
+#include <chrono>
+#include <android/log.h>
 
 USING_NS_CC;
 
@@ -1803,8 +1805,45 @@ void TVPMainScene::doStartup(float dt, std::string path) {
 extern ttstr TVPGetErrorDialogTitle();
 void TVPOnError();
 tjs_uint TVPGetGraphicCacheTotalBytes();
+// How the engine's own frame is spending its time, so a report of lag can be
+// answered instead of guessed at. Two numbers, because they mean different
+// things: the period is how often a frame actually happens (a pad press waits
+// on average half of one before anything looks at it), and the run is how much
+// of that period the engine's own work takes. A period near the 16 ms the
+// animation interval asks for, with a small run, says the input path is where
+// to look; a long period says the engine is, and a long run says which half.
+// Reported every two seconds, and only for the first minute of play: a log
+// line per frame would itself be the lag it is trying to measure.
+static int _frameReportBudget = 30;
+static int _frameCount = 0;
+static double _framePeriodSum = 0, _frameRunSum = 0, _framePeriodWorst = 0;
+static std::chrono::steady_clock::time_point _lastFrameAt;
+
 void TVPMainScene::update(float delta) {
+	std::chrono::steady_clock::time_point frameAt = std::chrono::steady_clock::now();
 	::Application->Run();
+	if (_frameReportBudget > 0) {
+		std::chrono::steady_clock::time_point ranAt = std::chrono::steady_clock::now();
+		double run = std::chrono::duration<double, std::milli>(ranAt - frameAt).count();
+		if (_lastFrameAt.time_since_epoch().count() != 0) {
+			double period = std::chrono::duration<double, std::milli>(frameAt - _lastFrameAt).count();
+			++_frameCount;
+			_framePeriodSum += period;
+			_frameRunSum += run;
+			if (period > _framePeriodWorst) _framePeriodWorst = period;
+		}
+		_lastFrameAt = frameAt;
+		if (_framePeriodSum >= 2000) {
+			--_frameReportBudget;
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"engine frame: %d frames, %.1f fps, period %.1f ms (worst %.1f), run %.1f ms",
+				_frameCount, _frameCount * 1000.0 / _framePeriodSum,
+				_framePeriodSum / _frameCount, _framePeriodWorst,
+				_frameRunSum / _frameCount);
+			_frameCount = 0;
+			_framePeriodSum = _frameRunSum = _framePeriodWorst = 0;
+		}
+	}
 	// The wrapper's confirm has to know, from the Android thread, whether
 	// anything holds keyboard focus. Reading the layer tree from that thread
 	// is not safe, so the answer is sampled here, on the engine's own thread,
