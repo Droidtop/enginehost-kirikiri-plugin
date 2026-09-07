@@ -67,8 +67,14 @@ static tjs_uint8 _scancode[0x200];
 static tjs_uint16 _keymap[0x200];
 /** How many key events still get a trace line (see onKeyPressed). */
 static int _keyTraceBudget = 40;
-/** Does any layer hold keyboard focus? Sampled once a frame; see onWrapperKey. */
-static std::atomic<bool> _wrapperFocusedLayer(false);
+/**
+ * The answer to the wrapper's last D-pad step, for the activity to collect:
+ * 0 nothing asked or the answer already taken, 1 focus moved and the pointer
+ * belongs at (_wrapperStepX, _wrapperStepY) in view coordinates, 2 nothing
+ * focusable lies that way. See onWrapperFocusStep.
+ */
+static std::atomic<int> _wrapperStepAnswer(0);
+static std::atomic<int> _wrapperStepX(0), _wrapperStepY(0);
 /** How many wrapper pointer moves still get a trace line. */
 static int _wrapperCursorTraceBudget = 8;
 static Label *_fpsLabel = nullptr;
@@ -1844,19 +1850,6 @@ void TVPMainScene::update(float delta) {
 			_framePeriodSum = _frameRunSum = _framePeriodWorst = 0;
 		}
 	}
-	// The wrapper's confirm has to know, from the Android thread, whether
-	// anything holds keyboard focus. Reading the layer tree from that thread
-	// is not safe, so the answer is sampled here, on the engine's own thread,
-	// once a frame -- never more than one frame stale, which is far finer than
-	// a person can press a button.
-	{
-		bool focused = false;
-		if (_currentWindowLayer && _currentWindowLayer->TJSNativeInstance) {
-			iTVPDrawDevice *device = _currentWindowLayer->TJSNativeInstance->GetDrawDevice();
-			if (device) focused = device->GetFocusedLayer() != nullptr;
-		}
-		_wrapperFocusedLayer.store(focused, std::memory_order_relaxed);
-	}
 //	if (_currentWindowLayer) _currentWindowLayer->UpdateOverlay();
 	iTVPTexture2D::RecycleProcess();
 	//_ResotreGLStatues();
@@ -2410,6 +2403,31 @@ void TVPMainScene::onPadKeyRepeat(cocos2d::Controller* ctrl, int code, cocos2d::
 // engine's own emulated mouse when a game has switched mouse-key mode on, and
 // two pointers fighting over one screen is worse than none.
 //---------------------------------------------------------------------------
+/** The draw device of the window the wrapper's pointer is over, or null. */
+static iTVPDrawDevice *_wrapperDrawDevice(TVPWindowLayer *window) {
+	if (!window || !window->TJSNativeInstance) return nullptr;
+	return window->TJSNativeInstance->GetDrawDevice();
+}
+
+/**
+ * A point in the game's own coordinates, back out to the view coordinates the
+ * activity draws its pointer in: the exact inverse of the way in below, so a
+ * ring warped onto a layer lands where a click on that layer would.
+ */
+static bool _wrapperGameToView(TVPWindowLayer *window, float gameX, float gameY,
+		float &viewX, float &viewY) {
+	if (!window || !window->PrimaryLayerArea) return false;
+	Director *director = Director::getInstance();
+	GLView *glview = director->getOpenGLView();
+	if (!glview) return false;
+	Vec2 node(gameX, window->PrimaryLayerArea->getContentSize().height - gameY);
+	Vec2 ui = director->convertToUI(window->PrimaryLayerArea->convertToWorldSpace(node));
+	const Rect &viewport = glview->getViewPortRect();
+	viewX = ui.x * glview->getScaleX() + viewport.origin.x;
+	viewY = ui.y * glview->getScaleY() + viewport.origin.y;
+	return true;
+}
+
 void TVPMainScene::onWrapperPointerMove(float viewX, float viewY) {
 	if (!_currentWindowLayer || !_currentWindowLayer->PrimaryLayerArea) return;
 	if (_windowMgrOverlay) return;
@@ -2424,6 +2442,30 @@ void TVPMainScene::onWrapperPointerMove(float viewX, float viewY) {
 		(viewY - viewport.origin.y) / glview->getScaleY());
 	Vec2 pt = director->convertToGL(ui);
 	_currentWindowLayer->onMouseMove(pt);
+	// Hovering IS focusing. The ring and the engine's keyboard focus are one
+	// selection: what the pointer is over is what is focused, and a D-pad step
+	// (below) moves focus and brings the ring with it. Two of them disagreeing
+	// -- a ring over one button and a highlight on another -- is exactly what
+	// this rules out, and KAG cannot do it alone: Noble Works' own
+	// ButtonLayer.tjs has "TODO: keyboard focus" where the drawing of a
+	// focused button would be, and its buttons take focus from a click only.
+	//
+	// Moving focus fires the game's own onFocus and onBlur, which is script,
+	// and script throws. It throws here for one known reason -- the engine
+	// refuses a focus change made while it is already processing one -- and
+	// this runs from the pointer, which can arrive at any point in a frame.
+	// An exception let out of here would leave cocos' update, so it is caught:
+	// a pointer move that could not take focus with it is worth losing, and
+	// the next one is a frame away.
+	iTVPDrawDevice *device = _wrapperDrawDevice(_currentWindowLayer);
+	if (device) {
+		try {
+			tTJSNI_BaseLayer *under = device->GetFocusableLayerAt(
+				_currentWindowLayer->_LastMouseX, _currentWindowLayer->_LastMouseY);
+			if (under != device->GetFocusedLayer()) device->SetFocusedLayer(under);
+		} catch (...) {
+		}
+	}
 	if (_wrapperCursorTraceBudget > 0) {
 		--_wrapperCursorTraceBudget;
 		char trace[128];
@@ -2450,8 +2492,79 @@ void TVPMainScene::onWrapperKey(int vk, bool down) {
 	}
 }
 
-bool TVPMainScene::wrapperHasFocusedLayer() {
-	return _wrapperFocusedLayer.load(std::memory_order_relaxed);
+/**
+ * A D-pad direction, as a step of the selection.
+ *
+ * A KAG screen is a mouse screen: its title buttons, its choices and its
+ * dialogs are layers you click. The wrapper's answer to a pad was a pointer
+ * you steer, which reaches all of that but is not how anyone drives a menu --
+ * the user's words were that the D-pad "does not move through menus". So a
+ * direction now asks the engine for the nearest focusable layer that way,
+ * focuses it, and reports back where its centre is, so the activity can put
+ * the ring on it. The pointer does not merely end up near the item: it ends
+ * up on it, and confirm is a click at the pointer, so the thing the ring is
+ * on is the thing that gets pressed.
+ *
+ * When nothing focusable lies that way -- an ordinary scene with only a
+ * message window -- the answer is 2 and the activity steers the pointer
+ * freely instead, which is what a scene needs.
+ */
+void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
+	iTVPDrawDevice *device = _wrapperDrawDevice(_currentWindowLayer);
+	if (!device || _windowMgrOverlay) {
+		_wrapperStepAnswer.store(2, std::memory_order_release);
+		return;
+	}
+	try {
+		// From where the pointer is. _LastMouse* is where the last mouse move put
+		// it, in the game's own coordinates, and the activity sends one for every
+		// step the ring takes -- so this is the ring's position by construction
+		// rather than by a second calculation that could drift from it.
+		tjs_int fromX = _currentWindowLayer->_LastMouseX;
+		tjs_int fromY = _currentWindowLayer->_LastMouseY;
+		tTJSNI_BaseLayer *step = device->GetFocusableLayerInDirection(fromX, fromY, dirX, dirY);
+		if (!step) {
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"wrapper step %d,%d from %d,%d: nothing focusable that way",
+				dirX, dirY, (int)fromX, (int)fromY);
+			_wrapperStepAnswer.store(2, std::memory_order_release);
+			return;
+		}
+		device->SetFocusedLayer(step);
+		tjs_int x = 0, y = 0;
+		step->ToPrimaryCoordinates(x, y);
+		const tTVPRect &rect = step->GetRect();
+		float viewX = 0, viewY = 0;
+		if (!_wrapperGameToView(_currentWindowLayer,
+				x + rect.get_width() / 2.0f, y + rect.get_height() / 2.0f, viewX, viewY)) {
+			_wrapperStepAnswer.store(2, std::memory_order_release);
+			return;
+		}
+		__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+			"wrapper step %d,%d from %d,%d: focus to game %d,%d -> view %.0f,%.0f",
+			dirX, dirY, (int)fromX, (int)fromY, (int)x, (int)y, viewX, viewY);
+		_wrapperStepX.store((int)viewX, std::memory_order_relaxed);
+		_wrapperStepY.store((int)viewY, std::memory_order_relaxed);
+		_wrapperStepAnswer.store(1, std::memory_order_release);
+	} catch (...) {
+		// Focusing runs the game's onFocus and onBlur; see onWrapperPointerMove
+		// above. A step that threw is answered as a step that found nothing,
+		// so the direction steers the pointer rather than going silent.
+		_wrapperStepAnswer.store(2, std::memory_order_release);
+	}
+}
+
+void TVPMainScene::wrapperForgetFocusStep() {
+	_wrapperStepAnswer.store(0, std::memory_order_release);
+}
+
+int TVPMainScene::wrapperTakeFocusStep(int &viewX, int &viewY) {
+	int answer = _wrapperStepAnswer.load(std::memory_order_acquire);
+	if (answer == 0) return 0;
+	viewX = _wrapperStepX.load(std::memory_order_relaxed);
+	viewY = _wrapperStepY.load(std::memory_order_relaxed);
+	_wrapperStepAnswer.store(0, std::memory_order_release);
+	return answer;
 }
 
 float TVPMainScene::convertCursorScale(float val/*0 ~ 1*/) {

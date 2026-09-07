@@ -34,22 +34,29 @@ import org.tvp.kirikiri2.KR2Activity;
  * IS the path, and it decides what a pad means to a KAG game.
  *
  * Pointing. A KAG game is a mouse application: its title screen, its menus
- * and its choices are clickable layers, and its buttons only take focus from
- * a mouse-down (Noble Works' own ButtonLayer.tjs says "TODO: keyboard focus"),
- * so arrow-key focus traversal cannot even start on a title screen. The left
- * stick and the D-pad therefore drive a cursor drawn over the game, with
- * acceleration so a tap nudges and a held push crosses the screen, and
- * confirm presses a touch at the cursor -- or Enter, when something holds
- * keyboard focus for the cursor to have put it there. That is one mechanism
- * for pointing, used by both, rather than a cursor for the stick and keys for
- * the D-pad.
+ * and its choices are clickable layers. The left stick drives a cursor drawn
+ * over the game, with acceleration so a tap nudges and a held push crosses
+ * the screen, and confirm is a touch at that cursor -- always, whatever holds
+ * focus. The cursor is the selection: what a press acts on is what the ring
+ * is on, and there is nothing else for a person to keep track of.
  *
  * Pointing at something. The pointer is drawn here, over the game, but the
  * engine is told where it is as well: every step of it is delivered as a real
  * mouse move ({@link #nativePointerMove}), which is what makes a KAG screen
  * answer it. Noble Works' choices take focus from onMouseEnter and its buttons
  * highlight from a mouse move, and none of that could happen while the pointer
- * was only a picture the engine learned about when a touch landed.
+ * was only a picture the engine learned about when a touch landed. That same
+ * move also gives the engine's keyboard focus to whatever the pointer is over,
+ * so hovering and focusing are one thing.
+ *
+ * Stepping. A pointer you steer reaches everything on a KAG screen but is not
+ * how anyone drives a menu, so the D-pad steps between the things on screen
+ * instead: {@link #nativeFocusStep} asks the engine for the nearest focusable
+ * layer that way, focus moves to it, and the ring is warped onto it. Focus and
+ * the pointer are therefore one selection moved from either end -- the ring
+ * follows a step, focus follows the ring -- and never two that disagree. Where
+ * nothing focusable lies that way, which is most of an ordinary scene, the
+ * engine says so and the direction steers the pointer as the stick does.
  *
  * Reading. The right stick sends arrow keys, repeating while it is held.
  * Arrow keys are what a KAG list layer reads once one is open -- the backlog
@@ -87,21 +94,16 @@ public class MainActivity extends KR2Activity {
 	// pointer and pad".
 	private static native void nativePointerMove(float x, float y);
 	private static native void nativeVKKey(int vk, boolean down);
-	private static native boolean nativeHasFocusedLayer();
+	private static native void nativeFocusStep(int dirX, int dirY);
+	private static native int nativeTakeFocusStep(float[] at);
+
+	/** What {@link #nativeTakeFocusStep} answers. */
+	private static final int STEP_WAITING = 0;
+	private static final int STEP_MOVED = 1;
+	private static final int STEP_NOTHING_THAT_WAY = 2;
 
 	/**
-	 * KiriKiri's own virtual key codes (the engine's tvpinputdefs.h). The pad
-	 * ones are what a KiriKiri game expects from a gamepad and cannot get from
-	 * an Android key code: Noble Works' YesNoDialog.tjs moves between its yes
-	 * and no buttons on VK_PADLEFT and VK_PADRIGHT.
-	 */
-	private static final int VK_RETURN = 0x0D;
-	private static final int VK_PADLEFT = 0x1B5;
-	private static final int VK_PADUP = 0x1B6;
-	private static final int VK_PADRIGHT = 0x1B7;
-	private static final int VK_PADDOWN = 0x1B8;
-	/**
-	 * The rest of what a KAG game reads, as the Windows virtual-key codes
+	 * What a KAG game reads, as the Windows virtual-key codes
 	 * KiriKiri speaks. Every one of these used to be sent as an Android
 	 * KeyEvent instead, in the hope that the engine's GL view would pick it
 	 * up; the user's own session says it never did -- Escape and Page Up both
@@ -154,16 +156,17 @@ public class MainActivity extends KR2Activity {
 	private static final float POINTER_FAST_PX_S = 900f;
 	private static final long POINTER_RAMP_MS = 900;
 	/**
-	 * How far one tap of a direction moves the cursor, as a fraction of the
-	 * screen. A tap used to be worth whatever a single 16 ms frame happened to
-	 * cover -- five pixels, and only when that frame ran before the key came
-	 * back up. For a held D-pad that is invisible; for the synthetic
-	 * `input keyevent` presses this layer is meant to be testable with, the
-	 * down and the up arrive together and the frame usually loses the race, so
-	 * a press moved nothing at all. dq-kirikiri-03 is exactly that: eight
-	 * DPAD_RIGHT presses left the cursor where it started and the click landed
-	 * on background art instead of START. A tap is a definite step now, and a
-	 * hold still ramps from wherever that step put it.
+	 * How far one tap of a direction moves the pointer where there is nothing
+	 * on screen to step to, as a fraction of it. A tap used to be worth
+	 * whatever a single 16 ms frame happened to cover -- five pixels, and only
+	 * when that frame ran before the key came back up. For a held D-pad that
+	 * is invisible; for the synthetic `input keyevent` presses this layer is
+	 * meant to be testable with, the down and the up arrive together and the
+	 * frame usually loses the race, so a press moved nothing at all.
+	 * dq-kirikiri-03 is exactly that: eight DPAD_RIGHT presses left the cursor
+	 * where it started and the click landed on background art instead of
+	 * START. A tap is a definite step, and a hold still ramps from wherever
+	 * that step put it.
 	 */
 	private static final float TAP_STEP_FRACTION = 0.05f;
 	private static final long FRAME_MS = 16;
@@ -186,6 +189,18 @@ public class MainActivity extends KR2Activity {
 	private static final long SCROLL_REPEAT_MS = 110;
 	/** How long the menu button must be held to mean "show me the mapping". */
 	private static final long LEGEND_HOLD_MS = 400;
+	/**
+	 * How many frames a direction waits for the engine to say what lies that
+	 * way. The engine answers on its own frame, so the usual wait is one; the
+	 * rest is allowance for a frame that ran long. After that the direction
+	 * steers the pointer instead of being dropped, because a D-pad that does
+	 * nothing at all because the engine was briefly busy is the worst of the
+	 * outcomes available here.
+	 */
+	private static final int STEP_POLLS = 5;
+	/** Stepping while a direction is held: one step, a pause, then a stream. */
+	private static final long STEP_FIRST_MS = 400;
+	private static final long STEP_REPEAT_MS = 180;
 
 	/**
 	 * The layout to fall back on when enginehost sends no bindings (a
@@ -252,7 +267,16 @@ public class MainActivity extends KR2Activity {
 	private long pointerStart;
 	private long lastPadInput;
 	private boolean clickHeld;
-	private boolean confirmAsKey;
+	/**
+	 * The direction being asked about, how many frames it has waited, whether
+	 * it has begun repeating, and whether the answer was "nothing that way" --
+	 * which is the one case where a held direction steers the pointer.
+	 */
+	private int stepDirX, stepDirY;
+	private int stepPolls;
+	private boolean stepRepeating;
+	private boolean keyDirSteers;
+	private final float[] stepAt = new float[2];
 	private final int[] viewLocation = new int[2];
 	private long clickDownTime;
 	private boolean legendShown;
@@ -276,6 +300,98 @@ public class MainActivity extends KR2Activity {
 			if (clickHeld) sendTouch(MotionEvent.ACTION_MOVE);
 			lastPadInput = now;
 			handler.postDelayed(this, FRAME_MS);
+		}
+	};
+
+	/**
+	 * The engine's answer to a direction, collected a frame at a time.
+	 *
+	 * The ring is not moved at all until the answer arrives. Moving it and
+	 * then warping it somewhere else a frame later would be two selections one
+	 * after the other, which is the very thing this design exists to rule out;
+	 * one frame of waiting is not something a hand can feel.
+	 */
+	private final Runnable awaitFocusStep = new Runnable() {
+		@Override
+		public void run() {
+			int answer = nativeTakeFocusStep(stepAt);
+			if (answer == STEP_WAITING) {
+				if (++stepPolls < STEP_POLLS) {
+					handler.postDelayed(this, FRAME_MS);
+					return;
+				}
+				answer = STEP_NOTHING_THAT_WAY;
+			}
+			if (answer == STEP_MOVED) {
+				// The engine answers in its own view's coordinates, which is
+				// what nativePointerMove takes; the ring is placed in the
+				// window's, so the view's offset goes back on.
+				float offsetX = 0f, offsetY = 0f;
+				View gl = getGLSurfaceView();
+				if (gl != null) {
+					gl.getLocationInWindow(viewLocation);
+					offsetX = viewLocation[0];
+					offsetY = viewLocation[1];
+				}
+				float wasX = cursorX, wasY = cursorY;
+				setCursor(stepAt[0] + offsetX, stepAt[1] + offsetY);
+				if (stepLogBudget > 0) {
+					stepLogBudget--;
+					Log.d(TAG, "menu step " + stepDirX + "," + stepDirY + ": "
+							+ wasX + "," + wasY + " -> " + cursorX + "," + cursorY);
+				}
+				lastPadInput = SystemClock.uptimeMillis();
+				if (directionHeld(stepDirX, stepDirY)) {
+					handler.postDelayed(repeatFocusStep,
+							stepRepeating ? STEP_REPEAT_MS : STEP_FIRST_MS);
+				} else {
+					stepRepeating = false;
+					scheduleCursorDim();
+				}
+				return;
+			}
+			// Nothing focusable that way. An ordinary scene is all message
+			// window and background art, and there the direction has to steer
+			// the pointer, which is what it did before any of this existed:
+			// one definite step now -- which is all a tap ever gets, because a
+			// tap is over before the ramp's first frame -- and then the ramp
+			// for as long as the direction is held.
+			View root = getWindow().getDecorView();
+			float wasX = cursorX, wasY = cursorY;
+			setCursor(cursorX + stepDirX * root.getWidth() * TAP_STEP_FRACTION,
+					cursorY + stepDirY * root.getHeight() * TAP_STEP_FRACTION);
+			if (stepLogBudget > 0) {
+				stepLogBudget--;
+				// A direction that changed nothing is named as such. Told
+				// apart in the log, "the hat never arrived" and "the pointer
+				// was already against that edge" look identical from the
+				// outside, and the second one cost a whole round trip to the
+				// console to find.
+				String named = stepDirX < 0 ? "left" : stepDirX > 0 ? "right"
+						: stepDirY < 0 ? "up" : "down";
+				Log.d(TAG, wasX == cursorX && wasY == cursorY
+						? "cursor " + named + ": already against that edge at "
+								+ cursorX + "," + cursorY
+						: "cursor " + named + ": " + wasX + "," + wasY
+								+ " -> " + cursorX + "," + cursorY);
+			}
+			keyDirSteers = true;
+			lastPadInput = SystemClock.uptimeMillis();
+			pointerChanged();
+		}
+	};
+
+	private final Runnable repeatFocusStep = new Runnable() {
+		@Override
+		public void run() {
+			if (!directionHeld(stepDirX, stepDirY)) {
+				stepRepeating = false;
+				return;
+			}
+			stepRepeating = true;
+			stepPolls = 0;
+			nativeFocusStep(stepDirX, stepDirY);
+			handler.postDelayed(awaitFocusStep, FRAME_MS);
 		}
 	};
 
@@ -512,8 +628,8 @@ public class MainActivity extends KR2Activity {
 	 *
 	 * A hat now raises and drops the very same direction action a D-pad key
 	 * raises, so there is one mechanism for a direction however it arrives:
-	 * the definite first step, KiriKiri's own pad code where something holds
-	 * focus, the pointer appearing, and the ramp while it is held.
+	 * the step to the next thing on screen, or the pointer's ramp where there
+	 * is nothing to step to.
 	 */
 	private void applyHat(int x, int y) {
 		if (x != hatX) {
@@ -551,8 +667,46 @@ public class MainActivity extends KR2Activity {
 		return 0;
 	}
 
-	private float pointerX() { return stickX != 0f ? stickX : keyDirX; }
-	private float pointerY() { return stickY != 0f ? stickY : keyDirY; }
+	// The stick always steers. A held direction steers only once the engine
+	// has said there is nothing on this screen to step to.
+	private float pointerX() { return stickX != 0f ? stickX : (keyDirSteers ? keyDirX : 0f); }
+	private float pointerY() { return stickY != 0f ? stickY : (keyDirSteers ? keyDirY : 0f); }
+
+	/** Is that the direction still being held? */
+	private boolean directionHeld(int dx, int dy) {
+		return (dx != 0 && keyDirX == dx) || (dy != 0 && keyDirY == dy);
+	}
+
+	/**
+	 * Ask the engine what lies that way. The layer tree can only be read on
+	 * the engine's own thread, so this is a question posted and an answer
+	 * collected, not a call.
+	 */
+	private void askFocusStep(int dx, int dy) {
+		stepDirX = dx;
+		stepDirY = dy;
+		stepPolls = 0;
+		stepRepeating = false;
+		keyDirSteers = false;
+		handler.removeCallbacks(awaitFocusStep);
+		handler.removeCallbacks(repeatFocusStep);
+		nativeFocusStep(dx, dy);
+		handler.postDelayed(awaitFocusStep, FRAME_MS);
+	}
+
+	/**
+	 * The D-pad was let go of: no more repeats, and nothing steers the
+	 * pointer. A question already asked is deliberately left to be answered.
+	 * A tap of the D-pad -- and every `input keyevent` press, where the down
+	 * and the up arrive in the same breath -- is let go of before the engine
+	 * has answered it, and cancelling the answer here would make a tap do
+	 * nothing at all.
+	 */
+	private void endFocusStep() {
+		handler.removeCallbacks(repeatFocusStep);
+		stepRepeating = false;
+		keyDirSteers = false;
+	}
 
 	/** Start or stop the cursor after anything that could have moved it. */
 	private void pointerChanged() {
@@ -752,68 +906,30 @@ public class MainActivity extends KR2Activity {
 			if (dx != 0) keyDirX = down ? dx : 0;
 			else keyDirY = down ? dy : 0;
 			if (down) {
-				showCursor(); // also centres the cursor the first time
-				View root = getWindow().getDecorView();
-				float wasX = cursorX, wasY = cursorY;
-				setCursor(cursorX + dx * root.getWidth() * TAP_STEP_FRACTION,
-						cursorY + dy * root.getHeight() * TAP_STEP_FRACTION);
-				// Where the step actually left it. showCursor's own line is
-				// printed BEFORE this runs, and on the very first direction it
-				// therefore always reads the centre of the screen -- which was
-				// read off dq-kirikiri-06 as the press having failed to move
-				// anything, when the cursor had in fact moved right after it.
-				// A log that has to be read in the right order is a log that
-				// will be read in the wrong one.
-				if (stepLogBudget > 0) {
-					stepLogBudget--;
-					// A direction that changed nothing is named as such. Told
-					// apart in the log, "the hat never arrived" and "the
-					// pointer was already against that edge" look identical
-					// from the outside, and the second one cost a whole round
-					// trip to the console to find.
-					Log.d(TAG, wasX == cursorX && wasY == cursorY
-							? "cursor " + action + ": already against that edge at "
-									+ cursorX + "," + cursorY
-							: "cursor " + action + ": " + wasX + "," + wasY
-									+ " -> " + cursorX + "," + cursorY);
-				}
-				// A direction also carries KiriKiri's own pad code, for the
-				// screens that read one: a yes/no dialog steps between its
-				// buttons on VK_PADLEFT and VK_PADRIGHT. Only while something
-				// holds focus -- with nothing focused the pointer is the whole
-				// mechanism, and the engine turns a pad direction into a move
-				// of its own emulated cursor, which would be a second,
-				// invisible pointer fighting this one.
-				if (nativeHasFocusedLayer()) {
-					int pad = dx < 0 ? VK_PADLEFT : dx > 0 ? VK_PADRIGHT
-							: dy < 0 ? VK_PADUP : VK_PADDOWN;
-					sendVKKey(pad, true);
-					sendVKKey(pad, false);
-				}
+				// The pointer has to exist before a direction can mean
+				// anything: showCursor puts it in the middle of the screen the
+				// first time, and the step below is measured from there.
+				showCursor();
+				askFocusStep(dx, dy);
+			} else if (keyDirX == 0 && keyDirY == 0) {
+				endFocusStep();
 			}
 			pointerChanged();
 			return true;
 		}
 		if ("confirm".equals(action)) {
-			// Exactly one of two things, and never both. When something holds
-			// keyboard focus -- a choice the pointer is hovering, the button a
-			// yes/no dialog focuses for itself -- Enter activates it, which is
-			// what the focused layer is waiting for. Otherwise it is a click
-			// where the pointer is, which is what a KAG title screen, message
-			// window and image map all answer.
-			//
-			// Both would be wrong rather than merely redundant: a focused
-			// ButtonLayer clicks ITSELF on Enter (its own onKeyUp does), so a
-			// click on top of that activates it twice, and a yes/no dialog
-			// answered twice closes something it was never asked about.
+			// A click where the pointer is. Always: the pointer is the
+			// selection, so the item the ring is on is the item this presses,
+			// and a person never has to wonder which of two things a button
+			// will act on. It used to send Enter instead whenever something
+			// held keyboard focus, on the reasoning that a focused layer is
+			// waiting for Enter -- but that made confirm mean two different
+			// things depending on invisible state, and now that a step warps
+			// the ring onto the layer it focuses, the click lands on the
+			// focused item anyway. One mechanism, and it is the visible one.
 			showCursor();
-			if (down) confirmAsKey = nativeHasFocusedLayer();
-			if (confirmAsKey) {
-				sendVKKey(VK_RETURN, down);
-			} else {
-				clickHeld = down;
-				sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
-			}
+			clickHeld = down;
+			sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
 			if (!down) scheduleCursorDim();
 			return true;
 		}
@@ -919,7 +1035,8 @@ public class MainActivity extends KR2Activity {
 			String had = buttons.get(bound.getValue());
 			buttons.put(bound.getValue(), had == null ? label : had + " / " + label);
 		}
-		StringBuilder text = new StringBuilder("Stick or D-pad: pointer   Right stick: scroll");
+		StringBuilder text = new StringBuilder(
+				"D-pad: step   Left stick: pointer   Right stick: scroll");
 		for (Map.Entry<String, String> meaning : ACTION_MEANINGS.entrySet()) {
 			String label = buttons.get(meaning.getKey());
 			if (label == null) continue;

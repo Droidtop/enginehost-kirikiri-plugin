@@ -245,12 +245,34 @@ extern "C" {
 		});
 	}
 
-	JNIEXPORT jboolean JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeHasFocusedLayer(
-		JNIEnv * env, jclass cls) {
-		// A flag the engine's own thread refreshes once a frame, so this can
-		// be answered from the activity's thread without touching the layer
-		// tree from it.
-		return TVPMainScene::wrapperHasFocusedLayer() ? JNI_TRUE : JNI_FALSE;
+	// A D-pad direction, asked as a step of the selection. The layer tree can
+	// only be walked on the engine's own thread, so the question is posted and
+	// the answer is collected by nativeTakeFocusStep below. The previous
+	// answer is forgotten first, on this thread and before the question is
+	// posted, so a slow reply to the last press can never be read as the
+	// reply to this one.
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeFocusStep(
+		JNIEnv * env, jclass cls, jint dirX, jint dirY) {
+		TVPMainScene::wrapperForgetFocusStep();
+		int dx = dirX, dy = dirY;
+		Android_PushEvents([dx, dy](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperFocusStep(dx, dy);
+		});
+	}
+
+	// 0 while the engine has not answered yet, 1 with the view coordinates the
+	// pointer belongs at written into "at", 2 when nothing focusable lies that
+	// way. Taking an answer clears it.
+	JNIEXPORT jint JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeTakeFocusStep(
+		JNIEnv * env, jclass cls, jfloatArray at) {
+		int x = 0, y = 0;
+		int answer = TVPMainScene::wrapperTakeFocusStep(x, y);
+		if (answer == 1 && at && env->GetArrayLength(at) >= 2) {
+			jfloat put[2] = { (jfloat)x, (jfloat)y };
+			env->SetFloatArrayRegion(at, 0, 2, put);
+		}
+		return answer;
 	}
 
 	JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(JNIEnv* env, jclass cls, jstring text) {
