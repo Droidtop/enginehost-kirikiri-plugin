@@ -64,6 +64,31 @@ public:
 	//! @param	layer	フォーカスのあるレイヤ
 	virtual void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer) = 0;
 
+	//! @brief	(enginehost) the focusable layer whose rectangle holds a point
+	//! @param	x,y	the point, in primary layer coordinates
+	//! @return	the frontmost such layer, or NULL
+	//! @note	A gamepad's pointer and the engine's keyboard focus are one
+	//!			selection in the enginehost wrapper: what the pointer is over
+	//!			is what is focused. This answers what it is over. The test is
+	//!			the layer's rectangle and not its mask, so that it agrees
+	//!			exactly with GetFocusableLayerInDirection below -- a step that
+	//!			put the pointer on a button must not then read as hovering
+	//!			nothing because the button is transparent under its centre.
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(
+		tjs_int x, tjs_int y) { return NULL; }
+
+	//! @brief	(enginehost) the focusable layer nearest in a direction
+	//! @param	x,y		where to look from, in primary layer coordinates
+	//! @param	dirX,dirY	the direction: one of -1, 0, 1 on each axis
+	//! @return	the layer to step to, or NULL when nothing lies that way
+	//! @note	The engine's own focus chain (GetNextFocusable) is tab order,
+	//!			which is the order the layers were built in and says nothing
+	//!			about where they are on screen. A D-pad asks a different
+	//!			question -- what is the nearest thing that way -- and this is
+	//!			it, so that a pad can step through a KAG menu.
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY) { return NULL; }
+
 //-- HID releted
 	//! @brief		クリックされた
 	//! @param		x		プライマリレイヤ座標上における x 位置
@@ -426,6 +451,16 @@ public:
 	bool SetFocusTo(tTJSNI_BaseLayer *layer, bool direction = true);
 		// set focus to layer
 	void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer) { SetFocusTo(layer, false); }
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(tjs_int x, tjs_int y);
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY);
+private:
+	//! @brief	one focusable layer and where it is in primary coordinates
+	struct tTVPFocusableLayer { tTJSNI_BaseLayer *Layer; tTVPRect Rect; };
+	//! @brief	every focusable layer under "layer", with its primary rectangle
+	void CollectFocusable(tTJSNI_BaseLayer *layer, tjs_int offsetX, tjs_int offsetY,
+		std::vector<tTVPFocusableLayer> &into);
+public:
 	tTJSNI_BaseLayer *FocusPrev(); // focus to previous layer
 	tTJSNI_BaseLayer *FocusNext(); // focus to next layer
 	void ReleaseAllModalLayer(); // release all modal layer on invalidation

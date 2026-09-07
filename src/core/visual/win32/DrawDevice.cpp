@@ -587,6 +587,27 @@ void TJS_INTF_METHOD tTVPDrawDevice::SetFocusedLayer(tTJSNI_BaseLayer * layer)
 
 
 //---------------------------------------------------------------------------
+tTJSNI_BaseLayer * TJS_INTF_METHOD tTVPDrawDevice::GetFocusableLayerAt(tjs_int x, tjs_int y)
+{
+	iTVPLayerManager * manager = GetLayerManagerAt(PrimaryLayerManagerIndex);
+	if(!manager) return NULL;
+	return manager->GetFocusableLayerAt(x, y);
+}
+//---------------------------------------------------------------------------
+
+
+//---------------------------------------------------------------------------
+tTJSNI_BaseLayer * TJS_INTF_METHOD tTVPDrawDevice::GetFocusableLayerInDirection(
+	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY)
+{
+	iTVPLayerManager * manager = GetLayerManagerAt(PrimaryLayerManagerIndex);
+	if(!manager) return NULL;
+	return manager->GetFocusableLayerInDirection(x, y, dirX, dirY);
+}
+//---------------------------------------------------------------------------
+
+
+//---------------------------------------------------------------------------
 void TJS_INTF_METHOD tTVPDrawDevice::RequestInvalidation(const tTVPRect & rect)
 {
 	tjs_int l = rect.left, t = rect.top, r = rect.right, b = rect.bottom;
