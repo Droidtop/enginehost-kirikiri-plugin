@@ -2403,25 +2403,21 @@ void TVPMainScene::onPadKeyRepeat(cocos2d::Controller* ctrl, int code, cocos2d::
 // engine's own emulated mouse when a game has switched mouse-key mode on, and
 // two pointers fighting over one screen is worse than none.
 //---------------------------------------------------------------------------
-/** The draw device of the window the wrapper's pointer is over, or null. */
-static iTVPDrawDevice *_wrapperDrawDevice(TVPWindowLayer *window) {
-	if (!window || !window->TJSNativeInstance) return nullptr;
-	return window->TJSNativeInstance->GetDrawDevice();
-}
-
 /**
  * A point in the game's own coordinates, back out to the view coordinates the
  * activity draws its pointer in: the exact inverse of the way in below, so a
- * ring warped onto a layer lands where a click on that layer would.
+ * ring warped onto a layer lands where a click on that layer would. It takes
+ * the primary layer's node rather than the window, because TVPWindowLayer's
+ * fields are private to it and its friend TVPMainScene.
  */
-static bool _wrapperGameToView(TVPWindowLayer *window, float gameX, float gameY,
+static bool _wrapperGameToView(Node *primaryLayerArea, float gameX, float gameY,
 		float &viewX, float &viewY) {
-	if (!window || !window->PrimaryLayerArea) return false;
+	if (!primaryLayerArea) return false;
 	Director *director = Director::getInstance();
 	GLView *glview = director->getOpenGLView();
 	if (!glview) return false;
-	Vec2 node(gameX, window->PrimaryLayerArea->getContentSize().height - gameY);
-	Vec2 ui = director->convertToUI(window->PrimaryLayerArea->convertToWorldSpace(node));
+	Vec2 node(gameX, primaryLayerArea->getContentSize().height - gameY);
+	Vec2 ui = director->convertToUI(primaryLayerArea->convertToWorldSpace(node));
 	const Rect &viewport = glview->getViewPortRect();
 	viewX = ui.x * glview->getScaleX() + viewport.origin.x;
 	viewY = ui.y * glview->getScaleY() + viewport.origin.y;
@@ -2457,7 +2453,8 @@ void TVPMainScene::onWrapperPointerMove(float viewX, float viewY) {
 	// An exception let out of here would leave cocos' update, so it is caught:
 	// a pointer move that could not take focus with it is worth losing, and
 	// the next one is a frame away.
-	iTVPDrawDevice *device = _wrapperDrawDevice(_currentWindowLayer);
+	iTVPDrawDevice *device = _currentWindowLayer->TJSNativeInstance ?
+		_currentWindowLayer->TJSNativeInstance->GetDrawDevice() : nullptr;
 	if (device) {
 		try {
 			tTJSNI_BaseLayer *under = device->GetFocusableLayerAt(
@@ -2510,7 +2507,8 @@ void TVPMainScene::onWrapperKey(int vk, bool down) {
  * freely instead, which is what a scene needs.
  */
 void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
-	iTVPDrawDevice *device = _wrapperDrawDevice(_currentWindowLayer);
+	iTVPDrawDevice *device = _currentWindowLayer && _currentWindowLayer->TJSNativeInstance ?
+		_currentWindowLayer->TJSNativeInstance->GetDrawDevice() : nullptr;
 	if (!device || _windowMgrOverlay) {
 		_wrapperStepAnswer.store(2, std::memory_order_release);
 		return;
@@ -2535,7 +2533,7 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 		step->ToPrimaryCoordinates(x, y);
 		const tTVPRect &rect = step->GetRect();
 		float viewX = 0, viewY = 0;
-		if (!_wrapperGameToView(_currentWindowLayer,
+		if (!_wrapperGameToView(_currentWindowLayer->PrimaryLayerArea,
 				x + rect.get_width() / 2.0f, y + rect.get_height() / 2.0f, viewX, viewY)) {
 			_wrapperStepAnswer.store(2, std::memory_order_release);
 			return;
