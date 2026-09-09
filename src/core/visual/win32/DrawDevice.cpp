@@ -598,11 +598,11 @@ tTJSNI_BaseLayer * TJS_INTF_METHOD tTVPDrawDevice::GetFocusableLayerAt(tjs_int x
 
 //---------------------------------------------------------------------------
 tTJSNI_BaseLayer * TJS_INTF_METHOD tTVPDrawDevice::GetFocusableLayerInDirection(
-	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY)
+	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY, tTVPFocusStepReport *report)
 {
 	iTVPLayerManager * manager = GetLayerManagerAt(PrimaryLayerManagerIndex);
 	if(!manager) return NULL;
-	return manager->GetFocusableLayerInDirection(x, y, dirX, dirY);
+	return manager->GetFocusableLayerInDirection(x, y, dirX, dirY, report);
 }
 //---------------------------------------------------------------------------
 

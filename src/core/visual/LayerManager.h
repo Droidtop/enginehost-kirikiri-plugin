@@ -16,6 +16,29 @@
 #include "drawable.h"
 #include <algorithm>
 #include <vector>
+#include <string>
+
+//---------------------------------------------------------------------------
+//! @brief	(enginehost) what a directional focus step saw on the way
+//! @note	"Nothing focusable that way" has three quite different causes --
+//!			the screen has no focusable layer at all, they all lie behind the
+//!			direction, or the only one is the layer the pointer already stands
+//!			inside -- and from outside they look identical. dq-kirikiri-09 spent
+//!			a whole device run on that ambiguity, so a step now says what it
+//!			rejected and why.
+struct tTVPFocusStepReport
+{
+	//! @brief	the pointer stands inside a focusable layer
+	//! @note	This is the KAG case: a message layer holds its menu as links,
+	//!			which are regions inside that one layer and not layers of their
+	//!			own, so there is nothing for a geometric step to land on. That
+	//!			screen answers the engine's own arrow keys instead.
+	bool PointerInsideFocusable;
+	//! @brief	optional: one line per layer considered, and what became of it
+	std::string *Trace;
+	tTVPFocusStepReport() : PointerInsideFocusable(false), Trace(NULL) {}
+};
+//---------------------------------------------------------------------------
 
 /*[*/
 class tTJSNI_BaseLayer;
@@ -87,7 +110,8 @@ public:
 	//!			question -- what is the nearest thing that way -- and this is
 	//!			it, so that a pad can step through a KAG menu.
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
-		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY) { return NULL; }
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report) { return NULL; }
 
 //-- HID releted
 	//! @brief		ƒNƒŠƒbƒN‚³‚ê‚½
@@ -453,13 +477,14 @@ public:
 	void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer) { SetFocusTo(layer, false); }
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(tjs_int x, tjs_int y);
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
-		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY);
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report);
 private:
 	//! @brief	one focusable layer and where it is in primary coordinates
 	struct tTVPFocusableLayer { tTJSNI_BaseLayer *Layer; tTVPRect Rect; };
 	//! @brief	every focusable layer under "layer", with its primary rectangle
 	void CollectFocusable(tTJSNI_BaseLayer *layer, tjs_int offsetX, tjs_int offsetY,
-		std::vector<tTVPFocusableLayer> &into);
+		std::vector<tTVPFocusableLayer> &into, tTVPFocusStepReport *report);
 public:
 	tTJSNI_BaseLayer *FocusPrev(); // focus to previous layer
 	tTJSNI_BaseLayer *FocusNext(); // focus to next layer

@@ -35,6 +35,7 @@
 #include "win32/SystemControl.h"
 #include "DrawDevice.h"
 #include <atomic>
+#include <string>
 #include <chrono>
 #include <android/log.h>
 
@@ -77,6 +78,9 @@ static std::atomic<int> _wrapperStepAnswer(0);
 static std::atomic<int> _wrapperStepX(0), _wrapperStepY(0);
 /** How many wrapper pointer moves still get a trace line. */
 static int _wrapperCursorTraceBudget = 8;
+// How many directional steps dump every layer the focus walk looked at. Two is
+// enough to settle what a screen offers, and the dump is long.
+static int _wrapperStepTraceBudget = 2;
 static Label *_fpsLabel = nullptr;
 
 #include "CCKeyCodeConv.h"
@@ -2505,6 +2509,22 @@ void TVPMainScene::onWrapperKey(int vk, bool down) {
  * When nothing focusable lies that way -- an ordinary scene with only a
  * message window -- the answer is 2 and the activity steers the pointer
  * freely instead, which is what a scene needs.
+ *
+ * And there is a third case, which is what a KAG menu actually is. Noble
+ * Works' title screen has five buttons, and not one of them is a focusable
+ * layer: its own MessageLayer.tjs builds them as LinkButtonLayers with
+ * "focusable = false" written in the constructor, and UILoader.tjs turns any
+ * button it adopts into a plain layer with ".enabled = .focusable = false".
+ * The menu lives as LINKS inside one full-screen message layer -- regions of
+ * a layer, not layers -- so a geometric step has nothing to land on, and the
+ * one focusable thing on the screen is the message layer the pointer is
+ * already standing inside. That layer, though, answers arrow keys itself:
+ * KAG's MessageLayer.onKeyDown walks its links with up/down/left/right,
+ * moves its own cursor onto the chosen one so the button draws its
+ * mouse-over image, and activates it on Return. So when the only focusable
+ * layer is the one under the pointer, the answer is 3: the screen has its own
+ * selection and the activity hands it the arrow key rather than sliding a
+ * ring over the top of it. One selection, drawn by the game.
  */
 void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 	iTVPDrawDevice *device = _currentWindowLayer && _currentWindowLayer->TJSNativeInstance ?
@@ -2520,8 +2540,40 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 		// rather than by a second calculation that could drift from it.
 		tjs_int fromX = _currentWindowLayer->_LastMouseX;
 		tjs_int fromY = _currentWindowLayer->_LastMouseY;
-		tTJSNI_BaseLayer *step = device->GetFocusableLayerInDirection(fromX, fromY, dirX, dirY);
+		std::string trace;
+		tTVPFocusStepReport report;
+		bool tracing = _wrapperStepTraceBudget > 0;
+		if (tracing) {
+			--_wrapperStepTraceBudget;
+			report.Trace = &trace;
+		}
+		tTJSNI_BaseLayer *step = device->GetFocusableLayerInDirection(
+			fromX, fromY, dirX, dirY, &report);
+		if (tracing) {
+			// Every layer the walk looked at and what became of it. A step that
+			// answers "nothing that way" is otherwise unarguable from outside,
+			// and dq-kirikiri-09 spent a device run finding that out.
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"wrapper step %d,%d from %d,%d: what the focus walk saw",
+				dirX, dirY, (int)fromX, (int)fromY);
+			size_t at = 0;
+			while (at < trace.size()) {
+				size_t nl = trace.find('\n', at);
+				if (nl == std::string::npos) nl = trace.size();
+				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri", "%s",
+					trace.substr(at, nl - at).c_str());
+				at = nl + 1;
+			}
+		}
 		if (!step) {
+			if (report.PointerInsideFocusable) {
+				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+					"wrapper step %d,%d from %d,%d: the pointer is inside a focusable"
+					" layer, so the screen steers itself",
+					dirX, dirY, (int)fromX, (int)fromY);
+				_wrapperStepAnswer.store(3, std::memory_order_release);
+				return;
+			}
 			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
 				"wrapper step %d,%d from %d,%d: nothing focusable that way",
 				dirX, dirY, (int)fromX, (int)fromY);

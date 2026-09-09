@@ -329,7 +329,8 @@ public:
 
 	//! @brief	(enginehost) the focusable layer nearest in a direction
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
-		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY) { return NULL; }
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report) { return NULL; }
 
 
 //---- 再描画関連
@@ -534,7 +535,8 @@ public:
 	virtual void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer);
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(tjs_int x, tjs_int y);
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
-		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY);
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report);
 
 //---- 再描画関連
 	virtual void TJS_INTF_METHOD RequestInvalidation(const tTVPRect & rect);

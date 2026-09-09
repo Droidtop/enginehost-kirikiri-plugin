@@ -816,31 +816,67 @@ tTJSNI_BaseLayer *tTVPLayerManager::SearchFirstFocusable(bool ignore_chain_focus
 // GetNodeFocusable and Rect and nothing else: no hit test, and therefore no
 // onHitTest event, so this cannot run script and cannot be reentered by it.
 //---------------------------------------------------------------------------
+static void TVPTraceLayer(tTVPFocusStepReport *report, tTJSNI_BaseLayer *layer,
+	tjs_int left, tjs_int top, const char *verdict)
+{
+	if(!report || !report->Trace) return;
+	// A layer tree is deep and a run of this is only ever read once, so the
+	// trace stops at a size a log line can carry rather than growing without
+	// bound on a screen with hundreds of layers.
+	if(report->Trace->size() > 12000) return;
+	char line[256];
+	std::string name = layer->GetName().AsNarrowStdString();
+	if(name.size() > 40) name.resize(40);
+	snprintf(line, sizeof(line), "  %s [%d,%d %dx%d] vis=%d foc=%d chain=%d: %s\n",
+		name.empty() ? "(unnamed)" : name.c_str(),
+		(int)left, (int)top,
+		(int)layer->GetRect().get_width(), (int)layer->GetRect().get_height(),
+		layer->GetVisible() ? 1 : 0, layer->GetFocusable() ? 1 : 0,
+		layer->GetJoinFocusChain() ? 1 : 0, verdict);
+	report->Trace->append(line);
+}
+//---------------------------------------------------------------------------
 void tTVPLayerManager::CollectFocusable(tTJSNI_BaseLayer *layer,
-	tjs_int offsetX, tjs_int offsetY, std::vector<tTVPFocusableLayer> &into)
+	tjs_int offsetX, tjs_int offsetY, std::vector<tTVPFocusableLayer> &into,
+	tTVPFocusStepReport *report)
 {
 	if(!layer) return;
-	if(!layer->Visible) return; // an invisible subtree is not on screen at all
+	if(!layer->Visible)
+	{
+		// An invisible subtree is not on screen at all, so it is pruned whole
+		// -- which is worth saying, because a whole menu missing from the
+		// candidates looks the same as a menu that was never built.
+		TVPTraceLayer(report, layer, offsetX, offsetY, "invisible: subtree skipped");
+		return;
+	}
 
 	tjs_int left = offsetX, top = offsetY;
 	if(!layer->IsPrimary()) { left += layer->Rect.left; top += layer->Rect.top; }
 
-	if(layer != Primary && layer->GetNodeFocusable() && layer->JoinFocusChain)
+	if(layer != Primary)
 	{
-		tTVPFocusableLayer found;
-		found.Layer = layer;
-		found.Rect.left = left;
-		found.Rect.top = top;
-		found.Rect.right = left + layer->Rect.get_width();
-		found.Rect.bottom = top + layer->Rect.get_height();
-		into.push_back(found);
+		if(!layer->GetNodeFocusable())
+			TVPTraceLayer(report, layer, left, top, "not focusable");
+		else if(!layer->JoinFocusChain)
+			TVPTraceLayer(report, layer, left, top, "focusable but out of the focus chain");
+		else
+		{
+			TVPTraceLayer(report, layer, left, top, "candidate");
+			tTVPFocusableLayer found;
+			found.Layer = layer;
+			found.Rect.left = left;
+			found.Rect.top = top;
+			found.Rect.right = left + layer->Rect.get_width();
+			found.Rect.bottom = top + layer->Rect.get_height();
+			into.push_back(found);
+		}
 	}
 
 	tjs_int count = layer->Children.GetCount();
 	for(tjs_int i = 0; i < count; i++)
 	{
 		tTJSNI_BaseLayer *child = layer->Children[i];
-		if(child) CollectFocusable(child, left, top, into);
+		if(child) CollectFocusable(child, left, top, into, report);
 	}
 }
 //---------------------------------------------------------------------------
@@ -848,7 +884,7 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerAt(tjs_int x, tjs_int y)
 {
 	if(!Primary) return NULL;
 	std::vector<tTVPFocusableLayer> found;
-	CollectFocusable(Primary, 0, 0, found);
+	CollectFocusable(Primary, 0, 0, found, NULL);
 
 	// The last one collected is the frontmost: children are walked in their
 	// own order, and a later child of the same parent is drawn over an
@@ -863,27 +899,51 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerAt(tjs_int x, tjs_int y)
 }
 //---------------------------------------------------------------------------
 tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
-	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY)
+	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY, tTVPFocusStepReport *report)
 {
 	if(!Primary) return NULL;
 	if(dirX == 0 && dirY == 0) return NULL;
 	std::vector<tTVPFocusableLayer> found;
-	CollectFocusable(Primary, 0, 0, found);
+	CollectFocusable(Primary, 0, 0, found, report);
 
 	tTJSNI_BaseLayer *best = NULL;
 	tjs_int bestScore = 0;
 	for(std::vector<tTVPFocusableLayer>::iterator i = found.begin();
 		i != found.end(); ++i)
 	{
+		// A layer the pointer is already standing inside is not somewhere to
+		// step to: it is where the step is coming from. Noble Works' title
+		// screen is exactly this case -- its five buttons are links inside one
+		// full-screen message layer, and that layer is the only focusable
+		// thing on the screen -- and without this test every direction
+		// "found" it and warped the ring to the middle of the screen, where
+		// there is no button and confirm did nothing (dq-kirikiri-09).
+		bool inside = x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom;
+		if(inside && report) report->PointerInsideFocusable = true;
+
 		tjs_int cx = (i->Rect.left + i->Rect.right) / 2;
 		tjs_int cy = (i->Rect.top + i->Rect.bottom) / 2;
 		// How far it lies ALONG the direction, and how far it strays ACROSS
 		// it. Only what is in front counts, so a direction can never step
-		// back to where it came from, and the layer the pointer is already on
-		// (whose centre is at most a few pixels away) is not a candidate.
+		// back to where it came from.
 		tjs_int along = dirX * (cx - x) + dirY * (cy - y);
 		tjs_int across = dirX != 0 ? (cy - y) : (cx - x);
 		if(across < 0) across = -across;
+		if(report && report->Trace && report->Trace->size() <= 12000)
+		{
+			char line[192];
+			snprintf(line, sizeof(line),
+				"  candidate at %d,%d %dx%d: along=%d across=%d%s\n",
+				(int)i->Rect.left, (int)i->Rect.top,
+				(int)(i->Rect.right - i->Rect.left),
+				(int)(i->Rect.bottom - i->Rect.top),
+				(int)along, (int)across,
+				inside ? " REJECTED: the pointer is inside it" :
+					(along <= 4 ? " REJECTED: not ahead of the direction" : ""));
+			report->Trace->append(line);
+		}
+		if(inside) continue;
 		if(along <= 4) continue;
 		// Straight ahead beats close but far off to one side: a menu column
 		// steps down its own items rather than across to a button beside it.
