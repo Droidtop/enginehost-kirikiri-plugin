@@ -950,6 +950,93 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
 		tjs_int score = along + across * 3;
 		if(!best || score < bestScore) { best = i->Layer; bestScore = score; }
 	}
+	if(best || !report) return best;
+
+	// KAG interfaces often implement hover/click selection from the pointer
+	// while deliberately disabling layer focus. Gather named visible leaf
+	// layers, then find a member of a repeated aligned row or column. Requiring
+	// a peer of similar size keeps ordinary named scene art out of this fallback.
+	struct tPointerWalk { tTJSNI_BaseLayer *Layer; tjs_int Left; tjs_int Top; };
+	std::vector<tPointerWalk> pending;
+	std::vector<tTVPFocusableLayer> pointerTargets;
+	pending.push_back((tPointerWalk){ Primary, 0, 0 });
+	while(!pending.empty())
+	{
+		tPointerWalk current = pending.back();
+		pending.pop_back();
+		tTJSNI_BaseLayer *layer = current.Layer;
+		if(!layer || !layer->Visible) continue;
+		tjs_int left = current.Left, top = current.Top;
+		if(!layer->IsPrimary()) { left += layer->Rect.left; top += layer->Rect.top; }
+		const tjs_int count = layer->Children.GetCount();
+		if(layer != Primary && count == 0 && !layer->GetNodeFocusable() &&
+			!layer->GetName().IsEmpty())
+		{
+			const tjs_int width = layer->Rect.get_width();
+			const tjs_int height = layer->Rect.get_height();
+			const tjs_int primaryWidth = Primary->Rect.get_width();
+			const tjs_int primaryHeight = Primary->Rect.get_height();
+			if(width >= 24 && height >= 16 && width * 4 <= primaryWidth * 3 &&
+				height * 4 <= primaryHeight)
+			{
+				tTVPFocusableLayer found;
+				found.Layer = layer;
+				found.Rect.left = left;
+				found.Rect.top = top;
+				found.Rect.right = left + width;
+				found.Rect.bottom = top + height;
+				pointerTargets.push_back(found);
+			}
+		}
+		for(tjs_int childIndex = 0; childIndex < count; childIndex++)
+		{
+			tTJSNI_BaseLayer *child = layer->Children[childIndex];
+			if(child) pending.push_back((tPointerWalk){ child, left, top });
+		}
+	}
+
+	tTVPFocusableLayer *pointerBest = NULL;
+	bestScore = 0;
+	for(std::vector<tTVPFocusableLayer>::iterator i = pointerTargets.begin();
+		i != pointerTargets.end(); ++i)
+	{
+		const tjs_int iw = i->Rect.right - i->Rect.left;
+		const tjs_int ih = i->Rect.bottom - i->Rect.top;
+		const tjs_int icx = (i->Rect.left + i->Rect.right) / 2;
+		const tjs_int icy = (i->Rect.top + i->Rect.bottom) / 2;
+		bool hasPeer = false;
+		for(std::vector<tTVPFocusableLayer>::iterator j = pointerTargets.begin();
+			j != pointerTargets.end(); ++j)
+		{
+			if(i == j) continue;
+			const tjs_int jw = j->Rect.right - j->Rect.left;
+			const tjs_int jh = j->Rect.bottom - j->Rect.top;
+			const tjs_int jcx = (j->Rect.left + j->Rect.right) / 2;
+			const tjs_int jcy = (j->Rect.top + j->Rect.bottom) / 2;
+			const bool similar = iw <= jw * 2 && jw <= iw * 2 &&
+				ih <= jh * 2 && jh <= ih * 2;
+			const bool aligned = dirX == 0 ?
+				(abs(icx - jcx) <= std::max(iw, jw) / 2) :
+				(abs(icy - jcy) <= std::max(ih, jh) / 2);
+			if(similar && aligned) { hasPeer = true; break; }
+		}
+		if(!hasPeer) continue;
+		const bool inside = x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom;
+		if(inside) continue;
+		const tjs_int along = dirX * (icx - x) + dirY * (icy - y);
+		if(along <= 4) continue;
+		tjs_int across = dirX != 0 ? icy - y : icx - x;
+		if(across < 0) across = -across;
+		const tjs_int score = along + across * 3;
+		if(!pointerBest || score < bestScore) { pointerBest = &*i; bestScore = score; }
+	}
+	if(pointerBest)
+	{
+		report->HasPointerTarget = true;
+		report->PointerTargetX = (pointerBest->Rect.left + pointerBest->Rect.right) / 2;
+		report->PointerTargetY = (pointerBest->Rect.top + pointerBest->Rect.bottom) / 2;
+	}
 	return best;
 }
 //---------------------------------------------------------------------------

@@ -2566,6 +2566,20 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 			}
 		}
 		if (!step) {
+			if (report.HasPointerTarget) {
+				float viewX = 0, viewY = 0;
+				if (_wrapperGameToView(_currentWindowLayer->PrimaryLayerArea,
+					report.PointerTargetX, report.PointerTargetY, viewX, viewY)) {
+					__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+						"wrapper step %d,%d from %d,%d: pointer target game %d,%d -> view %.0f,%.0f",
+						dirX, dirY, (int)fromX, (int)fromY,
+						(int)report.PointerTargetX, (int)report.PointerTargetY, viewX, viewY);
+					_wrapperStepX.store((int)viewX, std::memory_order_relaxed);
+					_wrapperStepY.store((int)viewY, std::memory_order_relaxed);
+					_wrapperStepAnswer.store(1, std::memory_order_release);
+					return;
+				}
+			}
 			if (report.PointerInsideFocusable) {
 				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
 					"wrapper step %d,%d from %d,%d: the pointer is inside a focusable"

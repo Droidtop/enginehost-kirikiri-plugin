@@ -34,9 +34,14 @@ struct tTVPFocusStepReport
 	//!			own, so there is nothing for a geometric step to land on. That
 	//!			screen answers the engine's own arrow keys instead.
 	bool PointerInsideFocusable;
+	//! @brief a visible aligned button-like layer can be reached by moving the pointer
+	bool HasPointerTarget;
+	tjs_int PointerTargetX;
+	tjs_int PointerTargetY;
 	//! @brief	optional: one line per layer considered, and what became of it
 	std::string *Trace;
-	tTVPFocusStepReport() : PointerInsideFocusable(false), Trace(NULL) {}
+	tTVPFocusStepReport() : PointerInsideFocusable(false), HasPointerTarget(false),
+		PointerTargetX(0), PointerTargetY(0), Trace(NULL) {}
 };
 //---------------------------------------------------------------------------
 
