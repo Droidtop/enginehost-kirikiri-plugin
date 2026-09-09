@@ -31,6 +31,13 @@
 tTJSHashTable<ttstr, TVPFontNamePathInfo, tTVPttstrHash>
     TVPFontNames;
 static ttstr TVPDefaultFontName;
+// The family name of face 0 of the last font file TVPInternalEnumFonts read.
+// The default face used to be whatever key the hash happened to hand back last
+// (TVPFontNames.GetLast()), which is an order nothing controls: a file that
+// registers several names could leave the default pointing at a name from a
+// file that was never the one chosen. Now the file the candidate list actually
+// stopped on names the default.
+static ttstr TVPPrimaryFontFamily;
 const ttstr &TVPGetDefaultFontName() {
 	return TVPDefaultFontName;
 }
@@ -134,6 +141,7 @@ static int TVPInternalEnumFonts(FT_Byte* pBuf, int buflen, const ttstr &FontPath
 				info.Index = i;
 				info.Getter = getter;
 				TVPFontNames.Add(fontname, info);
+				if (i == 0) TVPPrimaryFontFamily = fontname;
 			}
 			++faceCount;
 		}
@@ -178,7 +186,80 @@ tTJSBinaryStream* TVPCreateFontStream(const ttstr &fontname)
 extern std::vector<ttstr> Android_GetExternalStoragePath();
 extern ttstr Android_GetInternalStoragePath();
 extern ttstr Android_GetApkStoragePath();
+
+// A font that ships inside the bundle's own assets. Nothing but cocos' FileUtils
+// can see an asset, so the getter goes back through it every time FreeType
+// reopens the face rather than holding the bytes for the life of the process.
+static int TVPEnumFontsInAssets(const char *name)
+{
+	auto data = cocos2d::FileUtils::getInstance()->getDataFromFile(name);
+	if (data.isNull()) return 0;   // the bundle was built without this asset
+	return TVPInternalEnumFonts(data.getBytes(), (int)data.getSize(), name,
+		[](TVPFontNamePathInfo* info)->tTJSBinaryStream* {
+			auto data = cocos2d::FileUtils::getInstance()->getDataFromFile(info->Path.AsStdString());
+			tTVPMemoryStream *ret = new tTVPMemoryStream();
+			ret->WriteBuffer(data.getBytes(), data.getSize());
+			ret->SetPosition(0);
+			return ret;
+		});
+}
 #endif
+
+// The Windows font families a Japanese visual novel names, pointed at whatever
+// face this build ended up with.
+//
+// These games are written for a Windows machine running in Japanese, and they
+// say so: Noble Works asks for the four faces at the head of this list, and
+// PreRenderFontEx.tjs uses the first of them as its FallbackFace -- the face
+// every glyph its pre-rendered .tft files do not contain is drawn with, which
+// on an English-patched copy is most of the text. None of them exists on a
+// console, so every one of those requests used to fall through
+// FontSystem::GetBeingFont to the default face anyway; the difference is that
+// now the name a game asks for resolves to a face instead of quietly not
+// existing, so a script that tests for it, or lists the fonts, gets an answer
+// that matches what is drawn.
+//
+// Mincho is a serif family and the face we ship is a sans: a Mincho request is
+// answered with the wrong shape rather than with nothing, which is the trade
+// made rather than carry a second 16 MB font for two script lines.
+static const tjs_char *const TVPWindowsFontAliases[] = {
+	// Named by Noble Works' own scripts and by its English patch
+	// (counted in /root/re/nobleworks/all: 37, 9, 2 and 1 uses).
+	TJS_W("ＭＳ ゴシック"),      // MS Gothic
+	TJS_W("ＭＳ Ｐゴシック"),    // MS PGothic
+	TJS_W("ＭＳ Ｐ明朝"),        // MS PMincho
+	TJS_W("Tahoma"),
+	// The rest of the Japanese Windows set, so a patch or another KAG game
+	// naming one of them is not left without a face either.
+	TJS_W("ＭＳ 明朝"),          // MS Mincho
+	TJS_W("ＭＳ ＵＩ ゴシック"), // MS UI Gothic
+	TJS_W("メイリオ"),           // Meiryo (kana)
+	TJS_W("游ゴシック"),         // Yu Gothic (kanji)
+	TJS_W("MS Gothic"),
+	TJS_W("MS PGothic"),
+	TJS_W("MS Mincho"),
+	TJS_W("MS PMincho"),
+	TJS_W("MS UI Gothic"),
+	TJS_W("Meiryo"),
+	TJS_W("Yu Gothic"),
+	TJS_W("Arial"),
+	nullptr
+};
+
+static void TVPRegisterWindowsFontAliases()
+{
+	if (TVPDefaultFontName.IsEmpty()) return;
+	TVPFontNamePathInfo *found = TVPFontNames.Find(TVPDefaultFontName);
+	if (!found) return;
+	// By value: adding to the table can rehash it and move what found points at.
+	TVPFontNamePathInfo info = *found;
+	for (const tjs_char *const *name = TVPWindowsFontAliases; *name; ++name) {
+		ttstr alias(*name);
+		if (TVPFontNames.Find(alias)) continue;   // a real one was found first
+		TVPFontNames.Add(alias, info);
+	}
+}
+
 void TVPInitFontNames()
 {
     static bool TVPFontNamesInit = false;
@@ -206,16 +287,21 @@ void TVPInitFontNames()
 		
 		if (TVPEnumFontsProc(Android_GetInternalStoragePath() + "/default.ttf")) break;
 
-		{	// from internal storage
-			auto data = cocos2d::FileUtils::getInstance()->getDataFromFile("DroidSansFallback.ttf");
-			if (TVPInternalEnumFonts(data.getBytes(), data.getSize(), "DroidSansFallback.ttf", [](TVPFontNamePathInfo* info)->tTJSBinaryStream* {
-				auto data = cocos2d::FileUtils::getInstance()->getDataFromFile(info->Path.AsStdString());
-				tTVPMemoryStream *ret = new tTVPMemoryStream();
-				ret->WriteBuffer(data.getBytes(), data.getSize());
-				ret->SetPosition(0);
-				return ret;
-			})) break;
-		}
+		// The face this bundle ships, and the first thing tried once the player
+		// has not named one of their own. A Japanese game read on a console has
+		// no Japanese font to fall back on: the two candidates that follow are
+		// a Simplified-Chinese fallback face whose kanji are the wrong forms,
+		// and a Latin-only one. Noto Sans CJK JP is the face Locale Emulator's
+		// Japanese charset selection would have reached on Windows.
+		if (TVPEnumFontsInAssets("NotoSansCJKjp-Regular.otf")) break;
+
+		// Then the console's own CJK face, which is what a bundle built without
+		// that asset gets. NotoSansCJK-Regular.ttc is where Android has kept
+		// its CJK coverage since 7.0; face 0 of it is the JP one.
+		if (TVPEnumFontsProc(TJS_W("file://./system/fonts/NotoSansCJK-Regular.ttc"))) break;
+		if (TVPEnumFontsProc(TJS_W("file://./system/fonts/NotoSansJP-Regular.otf"))) break;
+
+		if (TVPEnumFontsInAssets("DroidSansFallback.ttf")) break;
 		if (TVPEnumFontsProc(TJS_W("file://./system/fonts/DroidSansFallback.ttf"))) break;
 		if (TVPEnumFontsProc(TJS_W("file://./system/fonts/NotoSansHans-Regular.otf"))) break;
 		if (TVPEnumFontsProc(TJS_W("file://./system/fonts/DroidSans.ttf"))) break;
@@ -227,9 +313,13 @@ void TVPInitFontNames()
         std::string fullPath = cocos2d::FileUtils::getInstance()->fullPathForFilename("DroidSansFallback.ttf");
         if (TVPEnumFontsProc(fullPath)) break;
 	} while (false);
-    if(TVPFontNames.GetCount() > 0)
+    if(!TVPPrimaryFontFamily.IsEmpty())
     {
-        // set default fontface name
+        // the file the list above stopped on
+        TVPDefaultFontName = TVPPrimaryFontFamily;
+    }
+    else if(TVPFontNames.GetCount() > 0)
+    {
         TVPDefaultFontName = TVPFontNames.GetLast().GetKey();
     }
 
@@ -254,9 +344,18 @@ void TVPInitFontNames()
         }
     }
 
+	// After the fonts/ scan, so a real MS Gothic dropped in there wins the name
+	// over the alias.
+	TVPRegisterWindowsFontAliases();
+
 	if (TVPDefaultFontName.IsEmpty()) {
 		TVPShowSimpleMessageBox(("Could not found any font.\nPlease ensure that at least \"default.ttf\" exists"), "Exception Occured");
-    }
+    } else {
+		// One line in krkr.console.log saying which face the text is drawn
+		// with, because "the Japanese is boxes" and "the English is boxes" look
+		// the same on screen and have different answers.
+		TVPAddLog(ttstr(TJS_W("Default font face: ")) + TVPDefaultFontName);
+	}
 }
 //---------------------------------------------------------------------------
 TVPFontNamePathInfo* TVPFindFont(const ttstr &fontname)

@@ -1,13 +1,21 @@
 {
   "bundleId": "dev.enginehost.kirikiri.v1",
   "engine": "kirikiri2",
-  "pluginVersion": "1.0",
+  "pluginVersion": "0.1",
   "apiVersion": 1,
   "entrypoint": "com.yuri.kirikiri2.MainActivity",
   "runtimeTransport": "android-activity",
   "origin": "https://github.com/droidtop/enginehost-kirikiri-plugin",
-  "dexFiles": ["classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex"],
-  "resourceApks": ["runtime.apk"],
+  "dexFiles": [
+    "classes.dex",
+    "classes2.dex",
+    "classes3.dex",
+    "classes4.dex",
+    "classes5.dex"
+  ],
+  "resourceApks": [
+    "runtime.apk"
+  ],
   "capabilities": [
     {
       "id": "kirikiri-v1",
@@ -20,5 +28,7 @@
     "upstream": "https://github.com/YuriSizuku/Kirikiroid2Yuri",
     "revision": "continuous"
   },
-  "licenses": ["GPL-2.0-or-later and bundled upstream notices"]
+  "licenses": [
+    "GPL-2.0-or-later and bundled upstream notices"
+  ]
 }

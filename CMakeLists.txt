@@ -5,9 +5,12 @@ set(CMAKE_CXX_STANDARD 11)
 set(KRKR2CORE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/src/core)
 set(KRKR2PLUGIN_PATH ${CMAKE_CURRENT_SOURCE_DIR}/src/plugins)
 set(COCOS2DX_PATH ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/port/cocos2d-x)
+set(SQLITE3_PATH ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/sqlite3)
 
 # build library
 add_subdirectory(${KRKR2CORE_PATH})
+# sqlite3.dll's engine, linked into krkr2plugin (see thirdparty/sqlite3)
+add_subdirectory(${SQLITE3_PATH})
 add_subdirectory(${KRKR2PLUGIN_PATH})
 
 # build main

@@ -23,7 +23,6 @@ on:
         description: "Release tag (default: derived from the bundle id; testing adds -testing)"
         type: string
         default: ""
-
 permissions:
   contents: read
 
@@ -32,8 +31,15 @@ permissions:
 # it had just obsoleted, so a five-push fix session burned five builds and
 # could email five failures for one problem. Keyed on the ref, so branches
 # and PRs never cancel each other.
+#
+# A promotion gets a group of its own, keyed on its run id, and so is never
+# cancelled by anything: it publishes one named, tested commit, and the next
+# push to the branch it was dispatched from has nothing to do with it. Keying
+# it on the ref cost exactly that once -- the dispatch that was to publish
+# build 77 to the testing channel was killed by the next commit landing on
+# plugin/stable minutes later.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
   cancel-in-progress: true
 
 jobs:
@@ -59,6 +65,24 @@ jobs:
           curl --fail --location --retry 5 --output upstream.apk \
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/1.3.9_yuri/Kirikiroid2_yuri_1.3.9.apk
           7z x upstream.apk assets
+      # A Japanese game on a console has no Japanese font to fall back on: the
+      # best the engine could otherwise find is Android's Simplified-Chinese
+      # fallback face, whose kanji are the wrong forms, or nothing at all. This
+      # is the font half of what Locale Emulator does on Windows, and it is the
+      # face TVPInitFontNames tries first. Pinned to the Sans2.004 tag and
+      # checked by hash: byte for byte the file inside that release's
+      # 06_NotoSansCJKjp.zip. Licence: SIL Open Font License 1.1, shipped
+      # beside it and recorded in enginehost/LICENSES.md.
+      - name: Add the shipped Japanese font (Noto Sans CJK JP, OFL 1.1)
+        run: |
+          mkdir -p assets
+          noto=https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-Regular.otf \
+            "$noto/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-LICENSE.txt \
+            "$noto/LICENSE"
+          echo "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5  assets/NotoSansCJKjp-Regular.otf" | sha256sum --check --strict -
+          echo "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  assets/NotoSansCJKjp-LICENSE.txt" | sha256sum --check --strict -
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -70,8 +94,40 @@ jobs:
           sudo mkdir -p /build_android
           sudo chown "$USER" /build_android
           ./gradlew assembleDebug --no-daemon --stacktrace
+      # The shipped library is stripped. A crash in it names only offsets, so
+      # keep the unstripped library from the same build beside the release;
+      # a tombstone plus this file gives the function and line.
+      - name: Keep the unstripped native library for symbolizing crashes
+        run: |
+          mkdir -p build/symbols
+          # Gradle's buildDir is redirected to build_android/ at the repo root
+          # and the CMake objects land under its intermediates/cxx tree (path
+          # segment "cxx", not "cmake"), so the previous find matched nothing
+          # and the artifact was always empty. Search both the build output and
+          # the .cxx staging directory, and keep only libraries that still have
+          # a symbol table -- the copies under intermediates are stripped.
+          readelf="$(find "${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk}"             -name llvm-readelf -path '*linux-x86_64*' 2>/dev/null | head -1)"
+          test -n "$readelf"
+          while IFS= read -r so; do
+            if "$readelf" -S "$so" | grep -q '\.symtab'; then
+              cp "$so" build/symbols/
+            fi
+          done < <(find build_android project/android/app/.cxx -name '*.so' -path '*arm64-v8a*' 2>/dev/null)
+          ls -la build/symbols
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-symbols-${{ github.run_number }}
+          path: build/symbols/
+          if-no-files-found: warn
+      # A plugin branch signs every green build, because that is what feeds the
+      # unstable channel. A promotion signs whatever ref it was dispatched
+      # against, which is the point of promoting: the commit that was proven on
+      # hardware is rarely the branch tip by the time its proof comes back, so
+      # it is dispatched from a ref of its own. Without this a promotion from
+      # anything but a plugin branch built cleanly, produced no bundle, and the
+      # publish job said "nothing to publish" while the run stayed green.
       - name: Build signed internal Enginehost bundle
-        if: startsWith(github.ref, 'refs/heads/plugin/')
+        if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         env:
           ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
         run: |
@@ -81,6 +137,26 @@ jobs:
           mkdir -p build/payload build/output
           cp "$apk" build/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/payload
+          # The wrapper APK is multidex. enginehost class-loads exactly the
+          # dex files this metadata declares, so a hard-coded single-entry
+          # list silently drops the rest of the wrapper at launch. Declare
+          # what the payload actually contains, in load order.
+          python3 - <<'DEXES'
+          import json, pathlib, re
+          payload = pathlib.Path('build/payload')
+          def order(p):
+              # classes.dex, classes2.dex ... classes10.dex is numeric order;
+              # a lexical sort would put 10 ahead of 2.
+              m = re.fullmatch(r'classes(\d*)\.dex', p.name)
+              return int(m.group(1) or 1)
+          dexes = sorted(payload.glob('classes*.dex'), key=order)
+          assert dexes, 'no classes*.dex in the APK payload'
+          meta = pathlib.Path('enginehost/bundle-metadata.json')
+          data = json.loads(meta.read_text())
+          data['dexFiles'] = [d.name for d in dexes]
+          meta.write_text(json.dumps(data, indent=2) + '\n')
+          print('dexFiles =', data['dexFiles'])
+          DEXES
           cp enginehost/LICENSES.md build/payload/LICENSES.md
           printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
           python3 enginehost-tooling/scripts/build-engine-bundle.py \
@@ -147,23 +223,25 @@ jobs:
           fi
           case "$CHANNEL" in
             stable) prerelease="" ;;
-            testing) tag="$tag-testing"; prerelease="--prerelease" ;;
-            unstable) tag="$tag-unstable"; prerelease="--prerelease" ;;
+            testing) [[ "$tag" == *-testing ]] || tag="$tag-testing"; prerelease="--prerelease" ;;
+            unstable) [[ "$tag" == *-unstable ]] || tag="$tag-unstable"; prerelease="--prerelease" ;;
             *) echo "unknown channel $CHANNEL" >&2; exit 1 ;;
           esac
           notes="Signed Enginehost bundle \`$id\` on the **$CHANNEL** channel, built from \`${{ github.ref_name }}\` at \`${{ github.sha }}\` (build ${{ github.run_number }}). Install it through Enginehost rather than unpacking it by hand: the bundle is verified file by file at install time against the key pinned for this repository."
-          if [ "$CHANNEL" = unstable ]; then
+          if [ "$CHANNEL" = unstable ] || [ "$CHANNEL" = testing ]; then
             # Rolling: the newest green build of the line is the whole release.
             gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id ($CHANNEL)" $prerelease --notes "$notes"
           elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
               --repo "${{ github.repository }}" --clobber
             gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
           else
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id ($CHANNEL)" $prerelease --notes "$notes"
           fi
 
   unstable:
@@ -214,8 +292,8 @@ jobs:
           fi
           case "$CHANNEL" in
             stable) prerelease="" ;;
-            testing) tag="$tag-testing"; prerelease="--prerelease" ;;
-            unstable) tag="$tag-unstable"; prerelease="--prerelease" ;;
+            testing) [[ "$tag" == *-testing ]] || tag="$tag-testing"; prerelease="--prerelease" ;;
+            unstable) [[ "$tag" == *-unstable ]] || tag="$tag-unstable"; prerelease="--prerelease" ;;
             *) echo "unknown channel $CHANNEL" >&2; exit 1 ;;
           esac
           notes="Signed Enginehost bundle \`$id\` on the **$CHANNEL** channel, built from \`${{ github.ref_name }}\` at \`${{ github.sha }}\` (build ${{ github.run_number }}). Install it through Enginehost rather than unpacking it by hand: the bundle is verified file by file at install time against the key pinned for this repository."
@@ -223,12 +301,14 @@ jobs:
             # Rolling: the newest green build of the line is the whole release.
             gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag 2>/dev/null || true
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id (unstable)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id (unstable)" $prerelease --notes "$notes"
           elif gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
               --repo "${{ github.repository }}" --clobber
             gh release edit "$tag" --repo "${{ github.repository }}" --notes "$notes"
           else
             gh release create "$tag" "$bundle" "$envelope" ${keydoc:+"$keydoc"} \
-              --repo "${{ github.repository }}" --title "$id ($CHANNEL)" $prerelease --notes "$notes"
+              --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+              --title "$id ($CHANNEL)" $prerelease --notes "$notes"
           fi

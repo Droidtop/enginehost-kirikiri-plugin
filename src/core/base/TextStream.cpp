@@ -87,21 +87,25 @@ static size_t _TextStream_mbstowcs(int(*func_mbtowc)(unsigned short *, const uns
 
 extern size_t TextStream_mbstowcs(tjs_char *pwcs, const tjs_nchar *s, size_t n) {
 	if (mbtowc_for_text_stream) {
+		// An encoding the game itself asked for, through System.readEncoding.
 		return _TextStream_mbstowcs(mbtowc_for_text_stream, pwcs, s, n);
 	}
-	// trying every encoding available
+	// Otherwise cp932, always and on every file: these are Windows games and
+	// their scripts are written in the Japanese ANSI code page, which is what
+	// Locale Emulator supplies on the desktop and what a console's own locale
+	// must not be allowed to change.
+	//
+	// utf-8 and gbk stay as a per-file fallback for a file cp932 cannot decode
+	// at all (a Chinese fan patch, a script somebody re-saved), but neither is
+	// remembered any more. Latching the whole process onto the first file that
+	// happened to fail meant one odd file turned every later Japanese script
+	// into mojibake, which is precisely the locale-dependent behaviour this is
+	// supposed to be free of.
 	size_t ret = _TextStream_mbstowcs(sjis_mbtowc, pwcs, s, n);
 	if (ret == (size_t)-1) {
 		ret = _TextStream_mbstowcs(utf8_mbtowc, pwcs, s, n);
-		if (ret != (size_t)-1) {
-			mbtowc_for_text_stream = utf8_mbtowc;
-			return ret;
-		}
+		if (ret != (size_t)-1) return ret;
 		ret = _TextStream_mbstowcs(gbk_mbtowc, pwcs, s, n);
-		if (ret != (size_t)-1) {
-			mbtowc_for_text_stream = gbk_mbtowc;
-			return ret;
-		}
 	}
 	return ret;
 }
@@ -146,11 +150,12 @@ bool TVPStringEncode(const ttstr &src, std::string &result, ttstr encoding /*= "
 	return true;
 }
 
-#ifdef TVP_TEXT_READ_ANSI_MBCS
+// What System.readEncoding reports before a game sets it, and what
+// TextStream_mbstowcs above actually tries first. cp932 either way: the
+// engine's own narrow strings are utf-8 (TJS_mbstowcs), but the text a game
+// reads off disk is Shift_JIS, and saying so is what a Windows ANSI code page
+// of 932 says.
 static ttstr DefaultReadEncoding = TJS_W("Shift_JIS");
-#else
-static ttstr DefaultReadEncoding = TJS_W("UTF-8");
-#endif
 //---------------------------------------------------------------------------
 // Interface to tTJSTextStream
 //---------------------------------------------------------------------------

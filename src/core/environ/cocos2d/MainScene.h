@@ -62,6 +62,15 @@ public:
 
 	static float convertCursorScale(float cfgScale/*0 ~ 1*/);
 
+	// The enginehost wrapper's pointer and pad, arriving from the Android
+	// activity rather than from cocos' own input. See the block above their
+	// definitions in MainScene.cpp for why the wrapper drives these directly.
+	void onWrapperPointerMove(float viewX, float viewY);
+	void onWrapperKey(int vk, bool down);
+	void onWrapperFocusStep(int dirX, int dirY);
+	static void wrapperForgetFocusStep();
+	static int wrapperTakeFocusStep(int &viewX, int &viewY);
+
 private:
 	void onKeyPressed(cocos2d::EventKeyboard::KeyCode keyCode, cocos2d::Event* event);
 	void onKeyReleased(cocos2d::EventKeyboard::KeyCode keyCode, cocos2d::Event* event);

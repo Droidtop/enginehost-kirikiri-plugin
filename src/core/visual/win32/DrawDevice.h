@@ -320,6 +320,18 @@ public:
 	//!				それ以外に呼ばれることはない。
 	virtual void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer) = 0;
 
+	//! @brief	(enginehost) the focusable layer whose rectangle holds a point
+	//! @note	Carried through to the primary layer manager, which documents
+	//!			what this is for: the wrapper's pointer and the engine's focus
+	//!			are one selection.
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(
+		tjs_int x, tjs_int y) { return NULL; }
+
+	//! @brief	(enginehost) the focusable layer nearest in a direction
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report) { return NULL; }
+
 
 //---- 再描画関連
 	//! @brief		(Window→DrawDevice) 描画矩形の無効化の通知
@@ -521,6 +533,10 @@ public:
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetPrimaryLayer();
 	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusedLayer();
 	virtual void TJS_INTF_METHOD SetFocusedLayer(tTJSNI_BaseLayer * layer);
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerAt(tjs_int x, tjs_int y);
+	virtual tTJSNI_BaseLayer * TJS_INTF_METHOD GetFocusableLayerInDirection(
+		tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY,
+		tTVPFocusStepReport *report);
 
 //---- 再描画関連
 	virtual void TJS_INTF_METHOD RequestInvalidation(const tTVPRect & rect);

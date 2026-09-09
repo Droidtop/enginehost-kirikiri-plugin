@@ -803,6 +803,243 @@ tTJSNI_BaseLayer *tTVPLayerManager::SearchFirstFocusable(bool ignore_chain_focus
 	return lay;
 }
 //---------------------------------------------------------------------------
+// Where the focusable layers are, for a gamepad.
+//
+// KiriKiri was written for a mouse and a keyboard, and its two ways of moving
+// focus reflect that: a click focuses whatever is under it, and Tab walks
+// GetNextFocusable, which is the layer tree's own order -- the order the
+// layers were constructed in. Neither answers what a D-pad asks, which is
+// always geometric: what is the nearest focusable thing to the left of here.
+//
+// So the focusable layers are gathered once per press by walking the tree,
+// each with its rectangle in primary coordinates. The walk reads Visible,
+// GetNodeFocusable and Rect and nothing else: no hit test, and therefore no
+// onHitTest event, so this cannot run script and cannot be reentered by it.
+//---------------------------------------------------------------------------
+static void TVPTraceLayer(tTVPFocusStepReport *report, tTJSNI_BaseLayer *layer,
+	tjs_int left, tjs_int top, const char *verdict)
+{
+	if(!report || !report->Trace) return;
+	// A layer tree is deep and a run of this is only ever read once, so the
+	// trace stops at a size a log line can carry rather than growing without
+	// bound on a screen with hundreds of layers.
+	if(report->Trace->size() > 12000) return;
+	char line[256];
+	std::string name = layer->GetName().AsNarrowStdString();
+	if(name.size() > 40) name.resize(40);
+	snprintf(line, sizeof(line), "  %s [%d,%d %dx%d] vis=%d foc=%d chain=%d: %s\n",
+		name.empty() ? "(unnamed)" : name.c_str(),
+		(int)left, (int)top,
+		(int)layer->GetRect().get_width(), (int)layer->GetRect().get_height(),
+		layer->GetVisible() ? 1 : 0, layer->GetFocusable() ? 1 : 0,
+		layer->GetJoinFocusChain() ? 1 : 0, verdict);
+	report->Trace->append(line);
+}
+//---------------------------------------------------------------------------
+void tTVPLayerManager::CollectFocusable(tTJSNI_BaseLayer *layer,
+	tjs_int offsetX, tjs_int offsetY, std::vector<tTVPFocusableLayer> &into,
+	tTVPFocusStepReport *report)
+{
+	if(!layer) return;
+	if(!layer->Visible)
+	{
+		// An invisible subtree is not on screen at all, so it is pruned whole
+		// -- which is worth saying, because a whole menu missing from the
+		// candidates looks the same as a menu that was never built.
+		TVPTraceLayer(report, layer, offsetX, offsetY, "invisible: subtree skipped");
+		return;
+	}
+
+	tjs_int left = offsetX, top = offsetY;
+	if(!layer->IsPrimary()) { left += layer->Rect.left; top += layer->Rect.top; }
+
+	if(layer != Primary)
+	{
+		if(!layer->GetNodeFocusable())
+			TVPTraceLayer(report, layer, left, top, "not focusable");
+		else if(!layer->JoinFocusChain)
+			TVPTraceLayer(report, layer, left, top, "focusable but out of the focus chain");
+		else
+		{
+			TVPTraceLayer(report, layer, left, top, "candidate");
+			tTVPFocusableLayer found;
+			found.Layer = layer;
+			found.Rect.left = left;
+			found.Rect.top = top;
+			found.Rect.right = left + layer->Rect.get_width();
+			found.Rect.bottom = top + layer->Rect.get_height();
+			into.push_back(found);
+		}
+	}
+
+	tjs_int count = layer->Children.GetCount();
+	for(tjs_int i = 0; i < count; i++)
+	{
+		tTJSNI_BaseLayer *child = layer->Children[i];
+		if(child) CollectFocusable(child, left, top, into, report);
+	}
+}
+//---------------------------------------------------------------------------
+tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerAt(tjs_int x, tjs_int y)
+{
+	if(!Primary) return NULL;
+	std::vector<tTVPFocusableLayer> found;
+	CollectFocusable(Primary, 0, 0, found, NULL);
+
+	// The last one collected is the frontmost: children are walked in their
+	// own order, and a later child of the same parent is drawn over an
+	// earlier one, which is the order GetMostFrontChildAt searches backward.
+	for(std::vector<tTVPFocusableLayer>::reverse_iterator i = found.rbegin();
+		i != found.rend(); ++i)
+	{
+		if(x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom) return i->Layer;
+	}
+	return NULL;
+}
+//---------------------------------------------------------------------------
+tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
+	tjs_int x, tjs_int y, tjs_int dirX, tjs_int dirY, tTVPFocusStepReport *report)
+{
+	if(!Primary) return NULL;
+	if(dirX == 0 && dirY == 0) return NULL;
+	std::vector<tTVPFocusableLayer> found;
+	CollectFocusable(Primary, 0, 0, found, report);
+
+	tTJSNI_BaseLayer *best = NULL;
+	tjs_int bestScore = 0;
+	for(std::vector<tTVPFocusableLayer>::iterator i = found.begin();
+		i != found.end(); ++i)
+	{
+		// A layer the pointer is already standing inside is not somewhere to
+		// step to: it is where the step is coming from. Noble Works' title
+		// screen is exactly this case -- its five buttons are links inside one
+		// full-screen message layer, and that layer is the only focusable
+		// thing on the screen -- and without this test every direction
+		// "found" it and warped the ring to the middle of the screen, where
+		// there is no button and confirm did nothing (dq-kirikiri-09).
+		bool inside = x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom;
+		if(inside && report) report->PointerInsideFocusable = true;
+
+		tjs_int cx = (i->Rect.left + i->Rect.right) / 2;
+		tjs_int cy = (i->Rect.top + i->Rect.bottom) / 2;
+		// How far it lies ALONG the direction, and how far it strays ACROSS
+		// it. Only what is in front counts, so a direction can never step
+		// back to where it came from.
+		tjs_int along = dirX * (cx - x) + dirY * (cy - y);
+		tjs_int across = dirX != 0 ? (cy - y) : (cx - x);
+		if(across < 0) across = -across;
+		if(report && report->Trace && report->Trace->size() <= 12000)
+		{
+			char line[192];
+			snprintf(line, sizeof(line),
+				"  candidate at %d,%d %dx%d: along=%d across=%d%s\n",
+				(int)i->Rect.left, (int)i->Rect.top,
+				(int)(i->Rect.right - i->Rect.left),
+				(int)(i->Rect.bottom - i->Rect.top),
+				(int)along, (int)across,
+				inside ? " REJECTED: the pointer is inside it" :
+					(along <= 4 ? " REJECTED: not ahead of the direction" : ""));
+			report->Trace->append(line);
+		}
+		if(inside) continue;
+		if(along <= 4) continue;
+		// Straight ahead beats close but far off to one side: a menu column
+		// steps down its own items rather than across to a button beside it.
+		tjs_int score = along + across * 3;
+		if(!best || score < bestScore) { best = i->Layer; bestScore = score; }
+	}
+	if(best || !report) return best;
+
+	// KAG interfaces often implement hover/click selection from the pointer
+	// while deliberately disabling layer focus. Gather named visible leaf
+	// layers, then find a member of a repeated aligned row or column. Requiring
+	// a peer of similar size keeps ordinary named scene art out of this fallback.
+	struct tPointerWalk { tTJSNI_BaseLayer *Layer; tjs_int Left; tjs_int Top; };
+	std::vector<tPointerWalk> pending;
+	std::vector<tTVPFocusableLayer> pointerTargets;
+	pending.push_back((tPointerWalk){ Primary, 0, 0 });
+	while(!pending.empty())
+	{
+		tPointerWalk current = pending.back();
+		pending.pop_back();
+		tTJSNI_BaseLayer *layer = current.Layer;
+		if(!layer || !layer->Visible) continue;
+		tjs_int left = current.Left, top = current.Top;
+		if(!layer->IsPrimary()) { left += layer->Rect.left; top += layer->Rect.top; }
+		const tjs_int count = layer->Children.GetCount();
+		if(layer != Primary && count == 0 && !layer->GetNodeFocusable() &&
+			!layer->GetName().IsEmpty())
+		{
+			const tjs_int width = layer->Rect.get_width();
+			const tjs_int height = layer->Rect.get_height();
+			const tjs_int primaryWidth = Primary->Rect.get_width();
+			const tjs_int primaryHeight = Primary->Rect.get_height();
+			if(width >= 24 && height >= 16 && width * 4 <= primaryWidth * 3 &&
+				height * 4 <= primaryHeight)
+			{
+				tTVPFocusableLayer found;
+				found.Layer = layer;
+				found.Rect.left = left;
+				found.Rect.top = top;
+				found.Rect.right = left + width;
+				found.Rect.bottom = top + height;
+				pointerTargets.push_back(found);
+			}
+		}
+		for(tjs_int childIndex = 0; childIndex < count; childIndex++)
+		{
+			tTJSNI_BaseLayer *child = layer->Children[childIndex];
+			if(child) pending.push_back((tPointerWalk){ child, left, top });
+		}
+	}
+
+	tTVPFocusableLayer *pointerBest = NULL;
+	bestScore = 0;
+	for(std::vector<tTVPFocusableLayer>::iterator i = pointerTargets.begin();
+		i != pointerTargets.end(); ++i)
+	{
+		const tjs_int iw = i->Rect.right - i->Rect.left;
+		const tjs_int ih = i->Rect.bottom - i->Rect.top;
+		const tjs_int icx = (i->Rect.left + i->Rect.right) / 2;
+		const tjs_int icy = (i->Rect.top + i->Rect.bottom) / 2;
+		bool hasPeer = false;
+		for(std::vector<tTVPFocusableLayer>::iterator j = pointerTargets.begin();
+			j != pointerTargets.end(); ++j)
+		{
+			if(i == j) continue;
+			const tjs_int jw = j->Rect.right - j->Rect.left;
+			const tjs_int jh = j->Rect.bottom - j->Rect.top;
+			const tjs_int jcx = (j->Rect.left + j->Rect.right) / 2;
+			const tjs_int jcy = (j->Rect.top + j->Rect.bottom) / 2;
+			const bool similar = iw <= jw * 2 && jw <= iw * 2 &&
+				ih <= jh * 2 && jh <= ih * 2;
+			const bool aligned = dirX == 0 ?
+				(abs(icx - jcx) <= std::max(iw, jw) / 2) :
+				(abs(icy - jcy) <= std::max(ih, jh) / 2);
+			if(similar && aligned) { hasPeer = true; break; }
+		}
+		if(!hasPeer) continue;
+		const bool inside = x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom;
+		if(inside) continue;
+		const tjs_int along = dirX * (icx - x) + dirY * (icy - y);
+		if(along <= 4) continue;
+		tjs_int across = dirX != 0 ? icy - y : icx - x;
+		if(across < 0) across = -across;
+		const tjs_int score = along + across * 3;
+		if(!pointerBest || score < bestScore) { pointerBest = &*i; bestScore = score; }
+	}
+	if(pointerBest)
+	{
+		report->HasPointerTarget = true;
+		report->PointerTargetX = (pointerBest->Rect.left + pointerBest->Rect.right) / 2;
+		report->PointerTargetY = (pointerBest->Rect.top + pointerBest->Rect.bottom) / 2;
+	}
+	return best;
+}
+//---------------------------------------------------------------------------
 bool tTVPLayerManager::SetFocusTo(tTJSNI_BaseLayer *layer, bool direction)
 {
 	// set focus to layer

@@ -5,6 +5,7 @@
 #include "cocos2d/MainScene.h"
 #include "ConfigManager/GlobalConfigManager.h"
 #include "Application.h"
+#include <android/log.h>
 
 /*******************************************************************************
                  Functions called by JNI
@@ -182,14 +183,96 @@ extern "C" {
 		case KEYCODE_PLAY		: pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PLAY		; break;
 		case KEYCODE_DPAD_CENTER: pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_CENTER; break;
         case KEYCODE_DEL          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_BACKSPACE; break;
-		default: return JNI_FALSE;
+		// Keys a visual novel is driven by; the wrapper's activity forwards
+		// them (and translates gamepad buttons into them).
+		case 62  /* KEYCODE_SPACE */      : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_SPACE; break;
+		case 111 /* KEYCODE_ESCAPE */     : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_ESCAPE; break;
+		case 113 /* KEYCODE_CTRL_LEFT */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_LEFT_CTRL; break;
+		case 114 /* KEYCODE_CTRL_RIGHT */ : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_RIGHT_CTRL; break;
+		case 92  /* KEYCODE_PAGE_UP */    : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_UP; break;
+		case 93  /* KEYCODE_PAGE_DOWN */  : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PG_DOWN; break;
+		// KAG reads its auto-advance and backlog shortcuts as plain letters
+		// (MainWindow.processKeys tests #'A' and #'R'), so a pad's auto and
+		// history buttons have no other key to become.
+		case 29  /* KEYCODE_A */          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_A; break;
+		case 46  /* KEYCODE_R */          : pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_R; break;
+		default:
+			// A key nothing here understands is dropped silently otherwise,
+			// which is indistinguishable from the pad not working.
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"nativeKeyAction: keycode %d is not one this engine reads", (int)keyCode);
+			return JNI_FALSE;
 		}
+		__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+			"nativeKeyAction: keycode %d -> cocos key %d, %s", (int)keyCode, (int)pKeyCode,
+			isPress ? "press" : "release");
 
 		Android_PushEvents([pKeyCode, isPress](){
 			cocos2d::EventKeyboard event(pKeyCode, isPress);
 			cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
 		});
 		return JNI_TRUE;
+	}
+
+	// The wrapper's pointer and pad. MainActivity.java decides what a button
+	// means and where the pointer is; these three carry that into the engine.
+	// What each one does to it is documented over their definitions in
+	// MainScene.cpp, under "The enginehost wrapper's pointer and pad".
+
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativePointerMove(
+		JNIEnv * env, jclass cls, jfloat x, jfloat y) {
+		float px = x, py = y;
+		Android_PushEvents([px, py](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperPointerMove(px, py);
+		});
+	}
+
+	static int _wrapperKeyLogBudget = 40;
+
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeVKKey(
+		JNIEnv * env, jclass cls, jint vk, jboolean down) {
+		int code = vk;
+		bool press = down == JNI_TRUE;
+		if (_wrapperKeyLogBudget > 0) {
+			--_wrapperKeyLogBudget;
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"wrapper key: VK 0x%x %s", code, press ? "down" : "up");
+		}
+		Android_PushEvents([code, press](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperKey(code, press);
+		});
+	}
+
+	// A D-pad direction, asked as a step of the selection. The layer tree can
+	// only be walked on the engine's own thread, so the question is posted and
+	// the answer is collected by nativeTakeFocusStep below. The previous
+	// answer is forgotten first, on this thread and before the question is
+	// posted, so a slow reply to the last press can never be read as the
+	// reply to this one.
+	JNIEXPORT void JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeFocusStep(
+		JNIEnv * env, jclass cls, jint dirX, jint dirY) {
+		TVPMainScene::wrapperForgetFocusStep();
+		int dx = dirX, dy = dirY;
+		Android_PushEvents([dx, dy](){
+			TVPMainScene *scene = TVPMainScene::GetInstance();
+			if (scene) scene->onWrapperFocusStep(dx, dy);
+		});
+	}
+
+	// 0 while the engine has not answered yet, 1 with the view coordinates the
+	// pointer belongs at written into "at", 2 when nothing focusable lies that
+	// way. Taking an answer clears it.
+	JNIEXPORT jint JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeTakeFocusStep(
+		JNIEnv * env, jclass cls, jfloatArray at) {
+		int x = 0, y = 0;
+		int answer = TVPMainScene::wrapperTakeFocusStep(x, y);
+		if (answer == 1 && at && env->GetArrayLength(at) >= 2) {
+			jfloat put[2] = { (jfloat)x, (jfloat)y };
+			env->SetFloatArrayRegion(at, 0, 2, put);
+		}
+		return answer;
 	}
 
 	JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(JNIEnv* env, jclass cls, jstring text) {

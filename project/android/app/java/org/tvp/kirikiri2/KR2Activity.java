@@ -672,6 +672,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, true);
                     return true;
                 default:
@@ -691,6 +704,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, false);
                     return true;
                 default:
