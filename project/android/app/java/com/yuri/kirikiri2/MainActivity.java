@@ -101,6 +101,21 @@ public class MainActivity extends KR2Activity {
 	private static final int STEP_WAITING = 0;
 	private static final int STEP_MOVED = 1;
 	private static final int STEP_NOTHING_THAT_WAY = 2;
+	/**
+	 * The screen has a selection of its own and moves it with the arrow keys.
+	 *
+	 * A KAG menu is not made of layers. Noble Works' title buttons are links
+	 * inside one full-screen message layer -- regions of a layer, which a
+	 * geometric step cannot land on -- and MessageLayer.tjs sets
+	 * "focusable = false" on every one of them on purpose, because the layer
+	 * that owns them does the selecting: its onKeyDown walks the links on
+	 * up/down/left/right, moves its own cursor onto the chosen one so the
+	 * button draws its highlight, and presses it on Return. So this answer
+	 * means: hand the direction over as an arrow key and take the ring off the
+	 * screen, because the game is already drawing what is selected and two
+	 * selections is the thing this design exists to prevent.
+	 */
+	private static final int STEP_GAME_STEERS = 3;
 
 	/**
 	 * What a KAG game reads, as the Windows virtual-key codes
@@ -112,6 +127,7 @@ public class MainActivity extends KR2Activity {
 	 */
 	private static final int VK_ESCAPE = 0x1B;
 	private static final int VK_CONTROL = 0x11;
+	private static final int VK_RETURN = 0x0D;
 	private static final int VK_PRIOR = 0x21;
 	private static final int VK_NEXT = 0x22;
 	private static final int VK_LEFT = 0x25;
@@ -276,6 +292,8 @@ public class MainActivity extends KR2Activity {
 	private int stepPolls;
 	private boolean stepRepeating;
 	private boolean keyDirSteers;
+	/** The screen is moving its own selection with the keys; see STEP_GAME_STEERS. */
+	private boolean gameSteers;
 	private final float[] stepAt = new float[2];
 	private final int[] viewLocation = new int[2];
 	private long clickDownTime;
@@ -323,6 +341,10 @@ public class MainActivity extends KR2Activity {
 				answer = STEP_NOTHING_THAT_WAY;
 			}
 			if (answer == STEP_MOVED) {
+				// The ring is in charge again, so it comes back: a screen that
+				// had taken the selection over has just given it up.
+				gameSteers = false;
+				showCursor();
 				// The engine answers in its own view's coordinates, which is
 				// what nativePointerMove takes; the ring is placed in the
 				// window's, so the view's offset goes back on.
@@ -350,12 +372,38 @@ public class MainActivity extends KR2Activity {
 				}
 				return;
 			}
+			if (answer == STEP_GAME_STEERS) {
+				// The game's own menu. The arrow key goes to the engine and
+				// the ring comes off the screen: KAG highlights the item it
+				// selects, and a ring sitting somewhere else beside that
+				// highlight would be a second selection saying something
+				// different -- exactly what the pointer-and-focus rule
+				// forbids. Confirm follows the same handover and sends Return.
+				gameSteers = true;
+				hideCursor("the screen's own selection has it");
+				tapVK(arrowVK(stepDirX, stepDirY));
+				if (stepLogBudget > 0) {
+					stepLogBudget--;
+					Log.d(TAG, "menu keys " + stepDirX + "," + stepDirY
+							+ ": handed to the screen's own selection");
+				}
+				lastPadInput = SystemClock.uptimeMillis();
+				if (directionHeld(stepDirX, stepDirY)) {
+					handler.postDelayed(repeatFocusStep,
+							stepRepeating ? STEP_REPEAT_MS : STEP_FIRST_MS);
+				} else {
+					stepRepeating = false;
+				}
+				return;
+			}
 			// Nothing focusable that way. An ordinary scene is all message
 			// window and background art, and there the direction has to steer
 			// the pointer, which is what it did before any of this existed:
 			// one definite step now -- which is all a tap ever gets, because a
 			// tap is over before the ramp's first frame -- and then the ramp
 			// for as long as the direction is held.
+			gameSteers = false;
+			showCursor();
 			View root = getWindow().getDecorView();
 			float wasX = cursorX, wasY = cursorY;
 			setCursor(cursorX + stepDirX * root.getWidth() * TAP_STEP_FRACTION,
@@ -672,6 +720,14 @@ public class MainActivity extends KR2Activity {
 	private float pointerX() { return stickX != 0f ? stickX : (keyDirSteers ? keyDirX : 0f); }
 	private float pointerY() { return stickY != 0f ? stickY : (keyDirSteers ? keyDirY : 0f); }
 
+	/** The engine's own key for a direction, for a screen that steers itself. */
+	private static int arrowVK(int dx, int dy) {
+		if (dx < 0) return VK_LEFT;
+		if (dx > 0) return VK_RIGHT;
+		if (dy < 0) return VK_UP;
+		return VK_DOWN;
+	}
+
 	/** Is that the direction still being held? */
 	private boolean directionHeld(int dx, int dy) {
 		return (dx != 0 && keyDirX == dx) || (dy != 0 && keyDirY == dy);
@@ -712,6 +768,9 @@ public class MainActivity extends KR2Activity {
 	private void pointerChanged() {
 		boolean moving = pointerX() != 0f || pointerY() != 0f;
 		if (moving) {
+			// A stick is a pointer, and a pointer takes the selection back
+			// from whatever screen was steering with the keys.
+			if (stickX != 0f || stickY != 0f) gameSteers = false;
 			lastPadInput = SystemClock.uptimeMillis();
 			showCursor();
 			if (!pointerRunning) {
@@ -788,13 +847,18 @@ public class MainActivity extends KR2Activity {
 	 */
 	@Override
 	public boolean dispatchTouchEvent(MotionEvent event) {
-		if (cursorShown && cursorView != null) {
-			cursorShown = false;
-			cursorView.setVisibility(View.GONE);
-			handler.removeCallbacks(dimCursor);
-			Log.d(TAG, "cursor hidden: the screen was touched");
-		}
+		gameSteers = false;
+		hideCursor("the screen was touched");
 		return super.dispatchTouchEvent(event);
+	}
+
+	/** Take the ring off the screen, once, and say why. */
+	private void hideCursor(String why) {
+		if (!cursorShown || cursorView == null) return;
+		cursorShown = false;
+		cursorView.setVisibility(View.GONE);
+		handler.removeCallbacks(dimCursor);
+		Log.d(TAG, "cursor hidden: " + why);
 	}
 
 	private int sentPointerX = Integer.MIN_VALUE, sentPointerY = Integer.MIN_VALUE;
@@ -812,11 +876,41 @@ public class MainActivity extends KR2Activity {
 			// over the letterbox, so a pointer that had run into the corner
 			// was invisible as well as immovable and there was nothing on
 			// screen to say where it had gone.
-			float ringW = cursorView.getWidth(), ringH = cursorView.getHeight();
-			float mostX = Math.max(0f, root.getWidth() - ringW);
-			float mostY = Math.max(0f, root.getHeight() - ringH);
-			cursorView.setX(Math.max(0f, Math.min(mostX, cursorX - ringW / 2f)));
-			cursorView.setY(Math.max(0f, Math.min(mostY, cursorY - ringH / 2f)));
+			int ringW = cursorView.getWidth() > 0 ? cursorView.getWidth() : dp(22);
+			int ringH = cursorView.getHeight() > 0 ? cursorView.getHeight() : dp(22);
+			int mostX = Math.max(0, root.getWidth() - ringW);
+			int mostY = Math.max(0, root.getHeight() - ringH);
+			int placeX = (int) Math.max(0f, Math.min(mostX, cursorX - ringW / 2f));
+			int placeY = (int) Math.max(0f, Math.min(mostY, cursorY - ringH / 2f));
+			// The ring is placed by its LAYOUT and not by setX/setY.
+			//
+			// dq-kirikiri-08 and -09 both pixel-diffed a whole session and
+			// found the ring drawn once, at the position of the very first
+			// direction, and never redrawn again while logcat went on
+			// reporting correct coordinates: a player saw a frozen ring and
+			// reported the D-pad as dead. setX only asks for the view's
+			// rendered properties to be re-published, and over the engine's
+			// GL surface that damage never reached the screen; the one move
+			// that did appear was the first, which came with the GONE ->
+			// VISIBLE change and therefore with a real layout pass. So every
+			// move now asks for that same layout pass, which is the path
+			// proven to reach the screen on this device.
+			ViewGroup.LayoutParams params = cursorView.getLayoutParams();
+			if (params instanceof FrameLayout.LayoutParams) {
+				FrameLayout.LayoutParams place = (FrameLayout.LayoutParams) params;
+				if (place.leftMargin != placeX || place.topMargin != placeY) {
+					place.leftMargin = placeX;
+					place.topMargin = placeY;
+					cursorView.setTranslationX(0f);
+					cursorView.setTranslationY(0f);
+					cursorView.setLayoutParams(place);
+					if (overlay != null) overlay.invalidate();
+					reportRingPlacement();
+				}
+			} else {
+				cursorView.setX(placeX);
+				cursorView.setY(placeY);
+			}
 		}
 		// Only when the pointer is somewhere else than the engine last heard.
 		// The movement runnable fires every frame for as long as a stick is
@@ -848,6 +942,30 @@ public class MainActivity extends KR2Activity {
 			y -= viewLocation[1];
 		}
 		nativePointerMove(x, y);
+	}
+
+	private int ringLogBudget = 6;
+
+	/**
+	 * Where the ring actually ended up, read back after the frame that placed
+	 * it. The two device runs that found the freeze could only say the ring
+	 * had not moved on screen; this says whether the view moved, so the next
+	 * one can tell "we never asked" from "we asked and nothing came of it".
+	 */
+	private void reportRingPlacement() {
+		if (ringLogBudget <= 0 || cursorView == null) return;
+		ringLogBudget--;
+		cursorView.post(new Runnable() {
+			@Override
+			public void run() {
+				if (cursorView == null) return;
+				int[] where = new int[2];
+				cursorView.getLocationInWindow(where);
+				Log.d(TAG, "ring laid out at " + where[0] + "," + where[1]
+						+ " for cursor " + cursorX + "," + cursorY
+						+ " shown=" + (cursorView.getVisibility() == View.VISIBLE));
+			}
+		});
 	}
 
 	private int touchLogBudget = 20;
@@ -908,8 +1026,12 @@ public class MainActivity extends KR2Activity {
 			if (down) {
 				// The pointer has to exist before a direction can mean
 				// anything: showCursor puts it in the middle of the screen the
-				// first time, and the step below is measured from there.
-				showCursor();
+				// first time, and the step below is measured from there. It
+				// also tells the engine where the pointer is, which is what
+				// gives the screen under it the focus its keys are delivered
+				// to. Once a screen has taken the selection over, the ring
+				// stays off rather than flashing back on for every press.
+				if (!gameSteers) showCursor();
 				askFocusStep(dx, dy);
 			} else if (keyDirX == 0 && keyDirY == 0) {
 				endFocusStep();
@@ -927,6 +1049,15 @@ public class MainActivity extends KR2Activity {
 			// things depending on invisible state, and now that a step warps
 			// the ring onto the layer it focuses, the click lands on the
 			// focused item anyway. One mechanism, and it is the visible one.
+			// ...unless the screen is steering its own selection, in which
+			// case there is no ring to click at and the selected item is the
+			// game's. Return is what KAG's own menu presses, and it presses
+			// the item it is highlighting -- still one selection, still the
+			// visible one, just drawn by the game instead of by us.
+			if (gameSteers) {
+				if (down) tapVK(VK_RETURN);
+				return true;
+			}
 			showCursor();
 			clickHeld = down;
 			sendTouch(down ? MotionEvent.ACTION_DOWN : MotionEvent.ACTION_UP);
