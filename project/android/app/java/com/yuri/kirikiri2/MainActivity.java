@@ -242,7 +242,7 @@ public class MainActivity extends KR2Activity {
 	 * must go quiet rather than keep a default meaning.
 	 */
 	private static final Map<Integer, String> DEFAULT_KEY_ACTIONS = new HashMap<Integer, String>();
-	private static final Map<String, Integer> DEFAULT_AXIS_ACTIONS = new HashMap<String, Integer>();
+	private static final Map<String, AxisBinding> DEFAULT_AXIS_ACTIONS = new HashMap<String, AxisBinding>();
 	static {
 		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_UP, "up");
 		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_DPAD_DOWN, "down");
@@ -256,10 +256,34 @@ public class MainActivity extends KR2Activity {
 		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_SELECT, "history");
 		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_L2, "page_previous");
 		DEFAULT_KEY_ACTIONS.put(KeyEvent.KEYCODE_BUTTON_R2, "page_next");
-		DEFAULT_AXIS_ACTIONS.put("left_x", MotionEvent.AXIS_X);
-		DEFAULT_AXIS_ACTIONS.put("left_y", MotionEvent.AXIS_Y);
-		DEFAULT_AXIS_ACTIONS.put("right_x", MotionEvent.AXIS_Z);
-		DEFAULT_AXIS_ACTIONS.put("right_y", MotionEvent.AXIS_RZ);
+		// The console's D-pad is a hat, which arrives as an axis and never as
+		// a D-pad key, so the four directions are here as signed axes as well
+		// as key codes above: with no map at all, both kinds of pad work.
+		DEFAULT_AXIS_ACTIONS.put("left", new AxisBinding(MotionEvent.AXIS_HAT_X, -1));
+		DEFAULT_AXIS_ACTIONS.put("right", new AxisBinding(MotionEvent.AXIS_HAT_X, 1));
+		DEFAULT_AXIS_ACTIONS.put("up", new AxisBinding(MotionEvent.AXIS_HAT_Y, -1));
+		DEFAULT_AXIS_ACTIONS.put("down", new AxisBinding(MotionEvent.AXIS_HAT_Y, 1));
+		DEFAULT_AXIS_ACTIONS.put("left_x", new AxisBinding(MotionEvent.AXIS_X, 0));
+		DEFAULT_AXIS_ACTIONS.put("left_y", new AxisBinding(MotionEvent.AXIS_Y, 0));
+		DEFAULT_AXIS_ACTIONS.put("right_x", new AxisBinding(MotionEvent.AXIS_Z, 0));
+		DEFAULT_AXIS_ACTIONS.put("right_y", new AxisBinding(MotionEvent.AXIS_RZ, 0));
+	}
+
+	/**
+	 * One axis binding out of the host's map: which axis, and which way it has
+	 * to be pushed to mean "pressed". A direction of -1 or +1 is a digital
+	 * binding -- the action goes down when the axis crosses the threshold that
+	 * way and up when it comes back -- and 0 is an analogue one, read as a
+	 * value rather than as a press.
+	 */
+	private static final class AxisBinding {
+		final int axis;
+		final int direction;
+
+		AxisBinding(int axis, int direction) {
+			this.axis = axis;
+			this.direction = direction;
+		}
 	}
 
 	/** What each action does here, in the words the on-screen legend uses. */
@@ -277,7 +301,9 @@ public class MainActivity extends KR2Activity {
 
 	private final Handler handler = new Handler(Looper.getMainLooper());
 	private final Map<Integer, String> padKeyActions = new HashMap<Integer, String>();
-	private final Map<String, Integer> padAxisActions = new HashMap<String, Integer>();
+	private final Map<String, AxisBinding> padAxisActions = new HashMap<String, AxisBinding>();
+	/** Which digitally-bound actions an axis is currently holding down. */
+	private final Map<String, Boolean> digitalAxisHeld = new HashMap<String, Boolean>();
 
 	private FrameLayout overlay;
 	private View cursorView;
@@ -293,7 +319,6 @@ public class MainActivity extends KR2Activity {
 	private boolean cursorPlaced;
 	private float stickX, stickY;
 	private float scrollX, scrollY;
-	private int hatX, hatY;
 	private int keyDirX, keyDirY;
 	private boolean pointerRunning, scrollRunning;
 	private boolean cursorShown;
@@ -626,6 +651,7 @@ public class MainActivity extends KR2Activity {
 	private void loadControllerBindings(String json) {
 		padKeyActions.clear();
 		padAxisActions.clear();
+		digitalAxisHeld.clear();
 		if (json != null) {
 			try {
 				JSONObject map = new JSONObject(json);
@@ -636,7 +662,8 @@ public class MainActivity extends KR2Activity {
 					if ("key".equals(binding.getString("type"))) {
 						padKeyActions.put(binding.getInt("code"), action);
 					} else if ("axis".equals(binding.getString("type"))) {
-						padAxisActions.put(action, binding.getInt("axis"));
+						padAxisActions.put(action, new AxisBinding(
+								binding.getInt("axis"), binding.optInt("direction", 0)));
 					}
 				}
 			} catch (Exception error) {
@@ -653,6 +680,12 @@ public class MainActivity extends KR2Activity {
 			padAxisActions.putAll(DEFAULT_AXIS_ACTIONS);
 		}
 		Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, " + padAxisActions.size() + " axes");
+	}
+
+	/** The analogue binding for an action, or null when it has none. */
+	private AxisBinding analogue(String action) {
+		AxisBinding binding = padAxisActions.get(action);
+		return binding != null && binding.direction == 0 ? binding : null;
 	}
 
 	private int dp(int value) {
@@ -684,7 +717,7 @@ public class MainActivity extends KR2Activity {
 	// ---------------------------------------------------------------- pointer
 
 	private int stickLogBudget = 20;
-	private int hatLogBudget = 40;
+	private int axisLogBudget = 40;
 	private boolean stickActive, scrollActive;
 
 	@Override
@@ -707,11 +740,9 @@ public class MainActivity extends KR2Activity {
 		// every edge in the event has to be looked at.
 		int samples = event.getHistorySize();
 		for (int sample = 0; sample < samples; sample++) {
-			applyHat(direction(event.getHistoricalAxisValue(MotionEvent.AXIS_HAT_X, sample)),
-					direction(event.getHistoricalAxisValue(MotionEvent.AXIS_HAT_Y, sample)));
+			applyDigitalAxes(event, sample);
 		}
-		applyHat(direction(event.getAxisValue(MotionEvent.AXIS_HAT_X)),
-				direction(event.getAxisValue(MotionEvent.AXIS_HAT_Y)));
+		applyDigitalAxes(event, -1);
 		// Logged when a stick crosses the dead zone, not once per event. A pad
 		// streams motion at sixty a second, so the old per-event budget of
 		// twelve bought two tenths of a second: the user's whole session shows
@@ -737,46 +768,51 @@ public class MainActivity extends KR2Activity {
 	}
 
 	/**
-	 * A real pad's D-pad is a hat: it arrives as an axis on a motion event and
-	 * never as KEYCODE_DPAD_* at all. The console's pad is one of those -- its
-	 * device reports no SOURCE_DPAD, and the user's session has not a single
-	 * D-pad key in it -- and a hat used only to lean on the cursor's movement
-	 * ramp. So a tap of the D-pad moved the pointer about five pixels, sent no
-	 * key, and never even brought the pointer on screen: the D-pad did nothing,
-	 * exactly as reported, while the same presses sent as keys had worked.
+	 * Every action bound to an axis with a sign, pressed or released by where
+	 * that axis stands in this sample.
 	 *
-	 * A hat now raises and drops the very same direction action a D-pad key
-	 * raises, so there is one mechanism for a direction however it arrives:
-	 * the step to the next thing on screen, or the pointer's ramp where there
-	 * is nothing to step to.
+	 * This is where a hat D-pad lives now. A real pad's D-pad is a hat: it
+	 * arrives as an axis on a motion event and never as KEYCODE_DPAD_* at all,
+	 * and the console's pad is one of those. It used to be read here directly,
+	 * off AXIS_HAT_X and AXIS_HAT_Y, which made the D-pad the one input this
+	 * class decided for itself -- a person could not move it, and a person who
+	 * wanted the four directions on a stick, or wanted them gone, had no way
+	 * to say so. Now it is a binding like any other: the host sends
+	 * {"type":"axis","axis":AXIS_HAT_Y,"direction":-1} for up when the person
+	 * captures the hat, and the same code serves a trigger, a stick pushed one
+	 * way, or any other axis they choose to press an action with.
+	 *
+	 * A direction is an edge, so the crossing is what is watched, and the
+	 * action goes through {@link #act} exactly as a key does -- which is what
+	 * keeps the padded release (VK_HOLD_MS) and the held-key behaviour of skip
+	 * the same however the action is bound.
 	 */
-	private void applyHat(int x, int y) {
-		if (x != hatX) {
-			int was = hatX;
-			hatX = x;
-			if (was != 0) act(was < 0 ? "left" : "right", false);
-			if (x != 0) act(x < 0 ? "left" : "right", true);
-			if (hatLogBudget > 0) {
-				hatLogBudget--;
-				Log.d(TAG, "Pad hat X " + was + " -> " + x);
+	private void applyDigitalAxes(MotionEvent event, int sample) {
+		for (Map.Entry<String, AxisBinding> bound : padAxisActions.entrySet()) {
+			AxisBinding binding = bound.getValue();
+			if (binding.direction == 0) continue; // analogue: read as a value
+			float value = sample < 0 ? event.getAxisValue(binding.axis)
+					: event.getHistoricalAxisValue(binding.axis, sample);
+			String action = bound.getKey();
+			boolean down = direction(value) == binding.direction;
+			Boolean before = digitalAxisHeld.get(action);
+			boolean was = before != null && before.booleanValue();
+			if (was == down) continue;
+			digitalAxisHeld.put(action, Boolean.valueOf(down));
+			if (axisLogBudget > 0) {
+				axisLogBudget--;
+				Log.d(TAG, "Pad axis " + MotionEvent.axisToString(binding.axis)
+						+ (binding.direction < 0 ? "-" : "+") + " " + action
+						+ (down ? " down" : " up"));
 			}
-		}
-		if (y != hatY) {
-			int was = hatY;
-			hatY = y;
-			if (was != 0) act(was < 0 ? "up" : "down", false);
-			if (y != 0) act(y < 0 ? "up" : "down", true);
-			if (hatLogBudget > 0) {
-				hatLogBudget--;
-				Log.d(TAG, "Pad hat Y " + was + " -> " + y);
-			}
+			act(action, down);
 		}
 	}
 
 	private float axis(MotionEvent event, String action) {
-		Integer which = padAxisActions.get(action);
-		if (which == null) return 0f;
-		float value = event.getAxisValue(which);
+		AxisBinding binding = analogue(action);
+		if (binding == null) return 0f; // unbound, or bound as a direction
+		float value = event.getAxisValue(binding.axis);
 		return Math.abs(value) > STICK_DEADZONE ? value : 0f;
 	}
 
