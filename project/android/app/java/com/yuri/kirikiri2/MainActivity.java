@@ -70,6 +70,17 @@ import org.tvp.kirikiri2.KR2Activity;
  * scrolls on them, and the engine's own focus traversal steps on them -- and
  * they are useless as a pointer, so the two sticks never fight.
  *
+ * Bindings. Nothing here reads a button or an axis for itself. Every action
+ * this class can take is named in the map enginehost hands over, and a
+ * binding is one of four things: a key code, an axis with a sign (a hat
+ * direction, or a stick pushed one way, which presses when it crosses the
+ * threshold that way and releases when it comes back), an analogue axis
+ * (direction 0, which is what the pointer and the scroll read), or nothing at
+ * all. "Nothing" is a binding like any other: the action simply never fires,
+ * and a feature driven by an action is off when its actions are unbound --
+ * unbind the two pointer axes and there is no ring and no emulated mouse,
+ * while stepping, clicking the selection and the shortcuts all go on working.
+ *
  * Keys. cancel, menu, skip, auto, history and the page actions become the
  * keys KAG itself reads -- every one of them taken from the game's own
  * MainWindow, not invented here; what is behind each is spelled out in
@@ -304,6 +315,12 @@ public class MainActivity extends KR2Activity {
 	private final Map<String, AxisBinding> padAxisActions = new HashMap<String, AxisBinding>();
 	/** Which digitally-bound actions an axis is currently holding down. */
 	private final Map<String, Boolean> digitalAxisHeld = new HashMap<String, Boolean>();
+	/**
+	 * Whether either pointer axis is bound. Unbound, there is no ring, no
+	 * emulated mouse driven by the pad, and a direction with nothing to step
+	 * to does nothing at all rather than sliding a cursor nobody can see.
+	 */
+	private boolean pointerEnabled;
 
 	private FrameLayout overlay;
 	private View cursorView;
@@ -458,6 +475,18 @@ public class MainActivity extends KR2Activity {
 			// tap is over before the ramp's first frame -- and then the ramp
 			// for as long as the direction is held.
 			releaseGameSteering();
+			if (!pointerEnabled) {
+				// No pointer to steer. A direction with nothing on screen to
+				// step to is simply over, rather than dragging an invisible
+				// mouse across the game.
+				if (stepLogBudget > 0) {
+					stepLogBudget--;
+					Log.d(TAG, "step " + stepDirX + "," + stepDirY
+							+ ": nothing that way, and the pointer is unbound");
+				}
+				keyDirSteers = false;
+				return;
+			}
 			showCursor();
 			View root = getWindow().getDecorView();
 			float wasX = cursorX, wasY = cursorY;
@@ -648,10 +677,20 @@ public class MainActivity extends KR2Activity {
 				ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 	}
 
+	/**
+	 * The map, and the only place a raw key code or axis number is read.
+	 *
+	 * A map that arrives at all wins entire, including the parts of it that
+	 * say "nothing": if a person unbinds an action, the button or axis they
+	 * took it off has to go quiet rather than fall back on a default meaning,
+	 * so the fallback table stands in only when no map came (a standalone
+	 * launch, or an older host) or when the one that came could not be read.
+	 */
 	private void loadControllerBindings(String json) {
 		padKeyActions.clear();
 		padAxisActions.clear();
 		digitalAxisHeld.clear();
+		boolean mapped = false;
 		if (json != null) {
 			try {
 				JSONObject map = new JSONObject(json);
@@ -659,27 +698,38 @@ public class MainActivity extends KR2Activity {
 				while (actions.hasNext()) {
 					String action = actions.next();
 					JSONObject binding = map.getJSONObject(action);
-					if ("key".equals(binding.getString("type"))) {
+					String type = binding.getString("type");
+					if ("key".equals(type)) {
 						padKeyActions.put(binding.getInt("code"), action);
-					} else if ("axis".equals(binding.getString("type"))) {
+					} else if ("axis".equals(type)) {
 						padAxisActions.put(action, new AxisBinding(
 								binding.getInt("axis"), binding.optInt("direction", 0)));
+					} else if (!"none".equals(type)) {
+						throw new IllegalArgumentException(
+								"unknown binding type \"" + type + "\" for " + action);
 					}
+					// "none" is left out of both maps, which is all an unbound
+					// action is here: nothing can raise it.
+					mapped = true;
 				}
 			} catch (Exception error) {
 				Log.w(TAG, "Ignoring an unreadable controller map: " + error);
 				padKeyActions.clear();
 				padAxisActions.clear();
+				mapped = false;
 			}
 		}
-		if (padKeyActions.isEmpty()) {
+		if (!mapped) {
 			Log.w(TAG, "No controller map from enginehost; using this plugin's own layout");
 			padKeyActions.putAll(DEFAULT_KEY_ACTIONS);
-		}
-		if (padAxisActions.isEmpty()) {
 			padAxisActions.putAll(DEFAULT_AXIS_ACTIONS);
 		}
-		Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, " + padAxisActions.size() + " axes");
+		pointerEnabled = analogue("left_x") != null || analogue("left_y") != null;
+		Log.i(TAG, "Controller map: " + padKeyActions.size() + " buttons, "
+				+ padAxisActions.size() + " axes; pointer emulation "
+				+ (pointerEnabled
+						? "ON (the left stick steers the ring)"
+						: "OFF (left_x and left_y are unbound; no ring, no emulated mouse)"));
 	}
 
 	/** The analogue binding for an action, or null when it has none. */
@@ -924,7 +974,9 @@ public class MainActivity extends KR2Activity {
 	}
 
 	private void showCursor() {
-		if (cursorView == null) return;
+		// Nothing to show when the person has unbound the pointer: the ring is
+		// the emulated mouse's marker, and there is no emulated mouse.
+		if (cursorView == null || !pointerEnabled) return;
 		if (!cursorPlaced) {
 			View root = getWindow().getDecorView();
 			setCursor(root.getWidth() / 2f, root.getHeight() / 2f);
@@ -1098,7 +1150,16 @@ public class MainActivity extends KR2Activity {
 
 	/** A touch at the cursor, delivered to the game the way a finger would be. */
 	private void sendTouch(int action) {
-		if (!cursorPlaced) showCursor();
+		if (!cursorPlaced) {
+			if (!pointerEnabled) {
+				// The pointer is unbound and no step has put it on anything
+				// yet, so there is nowhere for this click to land. Said out
+				// loud rather than sent at 0,0.
+				Log.d(TAG, "confirm with the pointer unbound and nothing selected yet");
+				return;
+			}
+			showCursor();
+		}
 		long now = SystemClock.uptimeMillis();
 		if (action == MotionEvent.ACTION_DOWN) clickDownTime = now;
 		MotionEvent touch = MotionEvent.obtain(clickDownTime, now, action, cursorX, cursorY, 0);
@@ -1306,8 +1367,9 @@ public class MainActivity extends KR2Activity {
 			String had = buttons.get(bound.getValue());
 			buttons.put(bound.getValue(), had == null ? label : had + " / " + label);
 		}
-		StringBuilder text = new StringBuilder(
-				"D-pad: step   Left stick: pointer   Right stick: scroll");
+		StringBuilder text = new StringBuilder(pointerEnabled
+				? "D-pad: step   Left stick: pointer   Right stick: scroll"
+				: "D-pad: step   Right stick: scroll   (pointer unbound)");
 		for (Map.Entry<String, String> meaning : ACTION_MEANINGS.entrySet()) {
 			String label = buttons.get(meaning.getKey());
 			if (label == null) continue;
