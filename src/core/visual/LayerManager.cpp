@@ -920,7 +920,17 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
 		// there is no button and confirm did nothing (dq-kirikiri-09).
 		bool inside = x >= i->Rect.left && x < i->Rect.right &&
 			y >= i->Rect.top && y < i->Rect.bottom;
-		if(inside && report) report->PointerInsideFocusable = true;
+		// The candidates are in tree order, so a later one is drawn over an
+		// earlier one: assigning unconditionally leaves the FRONTMOST layer the
+		// pointer is inside, which is the one GetFocusableLayerAt would return
+		// for the same point. The two must agree -- a hover and a step that
+		// disagreed about which layer is under the pointer would be two
+		// selections again.
+		if(inside && report)
+		{
+			report->PointerInsideFocusable = true;
+			report->PointerInside = i->Layer;
+		}
 
 		tjs_int cx = (i->Rect.left + i->Rect.right) / 2;
 		tjs_int cy = (i->Rect.top + i->Rect.bottom) / 2;

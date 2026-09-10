@@ -18,6 +18,8 @@
 #include <vector>
 #include <string>
 
+class tTJSNI_BaseLayer;
+
 //---------------------------------------------------------------------------
 //! @brief	(enginehost) what a directional focus step saw on the way
 //! @note	"Nothing focusable that way" has three quite different causes --
@@ -34,14 +36,22 @@ struct tTVPFocusStepReport
 	//!			own, so there is nothing for a geometric step to land on. That
 	//!			screen answers the engine's own arrow keys instead.
 	bool PointerInsideFocusable;
+	//! @brief	the frontmost focusable layer the pointer stands inside, if any
+	//! @note	The caller has to FOCUS this layer, not merely know it is there.
+	//!			The engine delivers a key to the focused layer and to nothing else
+	//!			(tTVPLayerManager::NotifyKeyDown fires FocusedLayer->FireKeyDown and
+	//!			returns), so handing a KAG link host an arrow key while it does not
+	//!			hold focus drops the key on the floor -- which is exactly what
+	//!			dq-kirikiri-10 saw: VK 0x28 arrived and the menu did not move.
+	tTJSNI_BaseLayer *PointerInside;
 	//! @brief a visible aligned button-like layer can be reached by moving the pointer
 	bool HasPointerTarget;
 	tjs_int PointerTargetX;
 	tjs_int PointerTargetY;
 	//! @brief	optional: one line per layer considered, and what became of it
 	std::string *Trace;
-	tTVPFocusStepReport() : PointerInsideFocusable(false), HasPointerTarget(false),
-		PointerTargetX(0), PointerTargetY(0), Trace(NULL) {}
+	tTVPFocusStepReport() : PointerInsideFocusable(false), PointerInside(NULL),
+		HasPointerTarget(false), PointerTargetX(0), PointerTargetY(0), Trace(NULL) {}
 };
 //---------------------------------------------------------------------------
 

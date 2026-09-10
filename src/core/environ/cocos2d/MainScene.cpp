@@ -2522,9 +2522,16 @@ void TVPMainScene::onWrapperKey(int vk, bool down) {
  * KAG's MessageLayer.onKeyDown walks its links with up/down/left/right,
  * moves its own cursor onto the chosen one so the button draws its
  * mouse-over image, and activates it on Return. So when the only focusable
- * layer is the one under the pointer, the answer is 3: the screen has its own
- * selection and the activity hands it the arrow key rather than sliding a
- * ring over the top of it. One selection, drawn by the game.
+ * layer is the one under the pointer, that layer is FOCUSED and the answer is
+ * 3: the screen has its own selection and the activity hands it the arrow key
+ * rather than sliding a ring over the top of it. One selection, drawn by the
+ * game.
+ *
+ * Focusing it is not a nicety. A key reaches the focused layer and no other --
+ * tTVPLayerManager::NotifyKeyDown fires FocusedLayer->FireKeyDown and returns
+ * -- so an arrow handed to a screen that holds no focus never arrives at
+ * MessageLayer.onKeyDown at all. dq-kirikiri-10 logged the handover and the
+ * arrow VK and a menu that did not move, which is that and nothing else.
  */
 void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 	iTVPDrawDevice *device = _currentWindowLayer && _currentWindowLayer->TJSNativeInstance ?
@@ -2581,11 +2588,39 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 				}
 			}
 			if (report.PointerInsideFocusable) {
+				// Hand the screen its own arrow key -- but the screen has to be
+				// holding focus first, or there is nothing to hand it to. The
+				// engine delivers a key to the FOCUSED layer and to nothing else:
+				// tTVPLayerManager::NotifyKeyDown fires FocusedLayer->FireKeyDown
+				// and returns, so with nothing focused the arrow reaches the
+				// window's own onKeyDown and dies there, never reaching
+				// MessageLayer.onKeyDown where the link walk lives. That is what
+				// dq-kirikiri-10 recorded and could not explain: "wrapper key: VK
+				// 0x28 down" is in the log, the handover line is in the log, and
+				// the menu did not move, because no layer was focused to move it.
+				//
+				// Focusing it here is the same act the hover path already performs
+				// (onWrapperPointerMove focuses the focusable layer under the
+				// pointer); a direction simply cannot rely on that having happened,
+				// because the ring does not move in this mode and a screen the
+				// pointer has never moved over has no focus at all.
+				bool focused = false;
+				if (report.PointerInside) {
+					device->SetFocusedLayer(report.PointerInside);
+					focused = device->GetFocusedLayer() == report.PointerInside;
+				}
 				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
 					"wrapper step %d,%d from %d,%d: the pointer is inside a focusable"
-					" layer, so the screen steers itself",
-					dirX, dirY, (int)fromX, (int)fromY);
-				_wrapperStepAnswer.store(3, std::memory_order_release);
+					" layer, so the screen steers itself (%s)",
+					dirX, dirY, (int)fromX, (int)fromY,
+					report.PointerInside ?
+						(focused ? "it holds focus, the arrow will reach it" :
+							"IT REFUSED FOCUS, the arrow will be dropped") :
+						"no layer to focus, the arrow will be dropped");
+				// A layer that refuses focus cannot be keyed, and answering 3 would
+				// hide the ring and send an arrow nothing receives -- a dead
+				// direction. Steering the pointer at least still reaches the screen.
+				_wrapperStepAnswer.store(focused ? 3 : 2, std::memory_order_release);
 				return;
 			}
 			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
