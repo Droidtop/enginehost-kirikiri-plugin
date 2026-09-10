@@ -2720,9 +2720,18 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 				float viewX = 0, viewY = 0;
 				if (_wrapperGameToView(_currentWindowLayer->PrimaryLayerArea,
 					report.PointerTargetX, report.PointerTargetY, viewX, viewY)) {
+					// Named, because a step onto the message window (the text
+					// box, which confirm then clicks to advance the line) and a
+					// step onto one of the little system buttons drawn on it
+					// look identical in a coordinate pair.
+					std::string target = "(unnamed)";
+					if (report.PointerTargetLayer) {
+						const ttstr &name = report.PointerTargetLayer->GetName();
+						if (!name.IsEmpty()) target = name.AsNarrowStdString();
+					}
 					__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
-						"wrapper step %d,%d from %d,%d: pointer target game %d,%d -> view %.0f,%.0f",
-						dirX, dirY, (int)fromX, (int)fromY,
+						"wrapper step %d,%d from %d,%d: pointer target %s at game %d,%d -> view %.0f,%.0f",
+						dirX, dirY, (int)fromX, (int)fromY, target.c_str(),
 						(int)report.PointerTargetX, (int)report.PointerTargetY, viewX, viewY);
 					_wrapperStepX.store((int)viewX, std::memory_order_relaxed);
 					_wrapperStepY.store((int)viewY, std::memory_order_relaxed);

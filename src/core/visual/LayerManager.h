@@ -44,14 +44,22 @@ struct tTVPFocusStepReport
 	//!			hold focus drops the key on the floor -- which is exactly what
 	//!			dq-kirikiri-10 saw: VK 0x28 arrived and the menu did not move.
 	tTJSNI_BaseLayer *PointerInside;
-	//! @brief a visible aligned button-like layer can be reached by moving the pointer
+	//! @brief a layer the pointer can be moved onto and clicked
+	//! @note	Either a member of a visible aligned button-like row, or a layer
+	//!			that takes a click anywhere inside it (htMask with a zero hit
+	//!			threshold), which is what KAG's message window is: that is the
+	//!			text box, and stepping onto it and pressing confirm advances the
+	//!			line exactly as a click on it does.
 	bool HasPointerTarget;
 	tjs_int PointerTargetX;
 	tjs_int PointerTargetY;
+	//! @brief	which layer that was, for the log; the caller does not act on it
+	tTJSNI_BaseLayer *PointerTargetLayer;
 	//! @brief	optional: one line per layer considered, and what became of it
 	std::string *Trace;
 	tTVPFocusStepReport() : PointerInsideFocusable(false), PointerInside(NULL),
-		HasPointerTarget(false), PointerTargetX(0), PointerTargetY(0), Trace(NULL) {}
+		HasPointerTarget(false), PointerTargetX(0), PointerTargetY(0),
+		PointerTargetLayer(NULL), Trace(NULL) {}
 };
 //---------------------------------------------------------------------------
 

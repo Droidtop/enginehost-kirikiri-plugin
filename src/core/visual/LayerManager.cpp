@@ -969,6 +969,18 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
 	struct tPointerWalk { tTJSNI_BaseLayer *Layer; tjs_int Left; tjs_int Top; };
 	std::vector<tPointerWalk> pending;
 	std::vector<tTVPFocusableLayer> pointerTargets;
+	// ...and one more kind of selection point, which is the message window.
+	// A layer whose hit type is htMask with a hit threshold of zero takes a
+	// click ANYWHERE inside its rectangle: every pixel hits, so the click
+	// lands on it and not on what is behind it. That is not the default (a
+	// layer starts at 16, "hit where the image is opaque"); KAG's message
+	// window sets it in MessageLayer's own constructor, which is precisely
+	// why clicking the text box advances the line, and the game's own
+	// LinkButtonLayer.canExecute asks the same question of a layer to decide
+	// whether it is clickable. So the text box becomes a place the D-pad can
+	// step onto and confirm on, without this code knowing anything about a
+	// particular game.
+	std::vector<tTVPFocusableLayer> clickTargets;
 	pending.push_back((tPointerWalk){ Primary, 0, 0 });
 	while(!pending.empty())
 	{
@@ -997,6 +1009,17 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
 				found.Rect.bottom = top + height;
 				pointerTargets.push_back(found);
 			}
+		}
+		if(layer != Primary && layer->GetNodeEnabled() &&
+			layer->GetHitType() == htMask && layer->GetHitThreshold() <= 0)
+		{
+			tTVPFocusableLayer found;
+			found.Layer = layer;
+			found.Rect.left = left;
+			found.Rect.top = top;
+			found.Rect.right = left + layer->Rect.get_width();
+			found.Rect.bottom = top + layer->Rect.get_height();
+			clickTargets.push_back(found);
 		}
 		for(tjs_int childIndex = 0; childIndex < count; childIndex++)
 		{
@@ -1041,9 +1064,58 @@ tTJSNI_BaseLayer *tTVPLayerManager::GetFocusableLayerInDirection(
 		const tjs_int score = along + across * 3;
 		if(!pointerBest || score < bestScore) { pointerBest = &*i; bestScore = score; }
 	}
+	// The smallest thing the pointer is standing on. A candidate the pointer is
+	// inside is normally where the step comes FROM rather than somewhere to go
+	// -- but that is only true of the smallest one. KAG's message window
+	// contains its own system buttons, so a ring resting on one of those still
+	// has somewhere to step to: the window itself, which is the text box.
+	tjs_int standingOn = -1;
+	for(std::vector<tTVPFocusableLayer>::iterator i = clickTargets.begin();
+		i != clickTargets.end(); ++i)
+	{
+		if(x < i->Rect.left || x >= i->Rect.right ||
+			y < i->Rect.top || y >= i->Rect.bottom) continue;
+		const tjs_int area = (i->Rect.right - i->Rect.left) *
+			(i->Rect.bottom - i->Rect.top);
+		if(standingOn < 0 || area < standingOn) standingOn = area;
+	}
+	for(std::vector<tTVPFocusableLayer>::iterator i = clickTargets.begin();
+		i != clickTargets.end(); ++i)
+	{
+		const tjs_int iw = i->Rect.right - i->Rect.left;
+		const tjs_int ih = i->Rect.bottom - i->Rect.top;
+		const tjs_int icx = (i->Rect.left + i->Rect.right) / 2;
+		const tjs_int icy = (i->Rect.top + i->Rect.bottom) / 2;
+		// One selection point per place on screen. If a SMALLER click target
+		// covers this one's centre, a click sent there would land on that one
+		// instead, so this is not a place to send the ring -- which is what
+		// keeps a full-screen background behind the message window from being
+		// offered as a second name for the same click.
+		bool covered = false;
+		for(std::vector<tTVPFocusableLayer>::iterator j = clickTargets.begin();
+			j != clickTargets.end(); ++j)
+		{
+			if(i == j) continue;
+			if(icx < j->Rect.left || icx >= j->Rect.right ||
+				icy < j->Rect.top || icy >= j->Rect.bottom) continue;
+			if((j->Rect.right - j->Rect.left) * (j->Rect.bottom - j->Rect.top)
+				< iw * ih) { covered = true; break; }
+		}
+		if(covered) continue;
+		const bool inside = x >= i->Rect.left && x < i->Rect.right &&
+			y >= i->Rect.top && y < i->Rect.bottom;
+		if(inside && (standingOn < 0 || iw * ih <= standingOn)) continue;
+		const tjs_int along = dirX * (icx - x) + dirY * (icy - y);
+		if(along <= 4) continue;
+		tjs_int across = dirX != 0 ? icy - y : icx - x;
+		if(across < 0) across = -across;
+		const tjs_int score = along + across * 3;
+		if(!pointerBest || score < bestScore) { pointerBest = &*i; bestScore = score; }
+	}
 	if(pointerBest)
 	{
 		report->HasPointerTarget = true;
+		report->PointerTargetLayer = pointerBest->Layer;
 		report->PointerTargetX = (pointerBest->Rect.left + pointerBest->Rect.right) / 2;
 		report->PointerTargetY = (pointerBest->Rect.top + pointerBest->Rect.bottom) / 2;
 	}
