@@ -1173,7 +1173,26 @@ void TVPDeliverCompactEvent(tjs_int level)
 			}
 		}
 	}
-	TVPDoSaveSystemVariables();
+	// Saving the system variables writes the game's own datasc.ksd and
+	// datasu.ksd -- a full Dictionary.saveStruct of the system flags and the
+	// seen-text flags, two synchronous writes to the card. This fork does it
+	// from the compact event so that Android, which can take the process away
+	// without an exit path, never loses the settings; the original engine
+	// saves them on the way out.
+	//
+	// It must not happen on the IDLE level. SystemWatchTimerTimer delivers
+	// TVP_COMPACT_LEVEL_IDLE every four seconds of idleness, so on a menu or a
+	// click wait -- exactly where a player sits -- that pair of writes ran on
+	// the render thread every four seconds. The user's 2026-09-09 session logs
+	// it precisely: a single frame of 600-1000 ms in every other two-second
+	// window, 60 fps in between, for as long as the game was left alone.
+	//
+	// Every level that means the process may actually go away still saves:
+	// DEACTIVATE when the activity loses focus, MINIMIZE, and MAX from the
+	// Android pause/destroy path and from System.doCompact. Nothing that
+	// protects the settings is given up; only the four-second heartbeat is.
+	if( level >= TVP_COMPACT_LEVEL_DEACTIVATE )
+		TVPDoSaveSystemVariables();
 #if 0
 	if( level >= TVP_COMPACT_LEVEL_MAX && TVPEnableGlobalHeapCompaction )
 	{	// Do compact CRT and Global Heap
