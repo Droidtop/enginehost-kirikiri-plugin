@@ -58,6 +58,13 @@ import org.tvp.kirikiri2.KR2Activity;
  * nothing focusable lies that way, which is most of an ordinary scene, the
  * engine says so and the direction steers the pointer as the stick does.
  *
+ * One marker, never two. A KAG menu selects for itself and lights its own
+ * button (see {@link #STEP_GAME_STEERS}); while that is what is happening the
+ * ring is off the screen altogether and the pointer merely keeps up with the
+ * game's cursor in silence. It comes back the moment the pointer is in charge
+ * again -- a push of the stick, or a direction the game did not take -- and it
+ * comes back on the item the game had selected.
+ *
  * Reading. The right stick sends arrow keys, repeating while it is held.
  * Arrow keys are what a KAG list layer reads once one is open -- the backlog
  * scrolls on them, and the engine's own focus traversal steps on them -- and
@@ -302,13 +309,6 @@ public class MainActivity extends KR2Activity {
 	private boolean keyDirSteers;
 	/** The screen is moving its own selection with the keys; see STEP_GAME_STEERS. */
 	private boolean gameSteers;
-	/**
-	 * ...and that screen has been seen to warp the mouse onto what it selects,
-	 * so the ring can sit on the selection instead of coming off the screen.
-	 * Not known until the first handed-over arrow is answered, which is why the
-	 * ring is taken off for that first press and only that one.
-	 */
-	private boolean gameMovesCursor;
 	private final float[] stepAt = new float[2];
 	private int engineCursorPolls;
 	private final int[] viewLocation = new int[2];
@@ -396,21 +396,17 @@ public class MainActivity extends KR2Activity {
 				// different -- exactly what the pointer-and-focus rule
 				// forbids. Confirm follows the same handover and sends Return.
 				gameSteers = true;
-				if (!gameMovesCursor)
-					hideCursor("the screen's own selection has it");
+				hideCursor("the screen's own selection has it");
 				tapVK(arrowVK(stepDirX, stepDirY));
-				// And then watch for where the game puts its own mouse. KAG
-				// answers an arrow by selecting the next link and warping the
-				// cursor onto it (MessageLayer.setFocusToLink assigns cursorX
-				// and cursorY), which is the game saying where its selection
-				// now is. The ring goes there: on the selection, not beside
-				// it, so it is still one selection and the player can see it
-				// move. Until that arrives the ring stays off, because a ring
-				// left at the last stick position while the game's selection
-				// walks away IS the second selection -- and that is what the
-				// 2026-09-09 session looked like from the outside: the arrows
-				// were working, the game's selection was stepping, and nothing
-				// the player could see moved at all.
+				// And then follow where the game puts its own mouse, without
+				// drawing anything. KAG answers an arrow by selecting the next
+				// link and warping the cursor onto it
+				// (MessageLayer.setFocusToLink assigns cursorX and cursorY),
+				// which is the game saying where its selection now is. The
+				// pointer goes there so that the two can never disagree, and
+				// so that when the player takes the selection back the ring
+				// appears ON what the game had selected rather than at some
+				// point it was left at three presses ago.
 				engineCursorPolls = 0;
 				handler.removeCallbacks(awaitEngineCursor);
 				handler.postDelayed(awaitEngineCursor, FRAME_MS);
@@ -483,14 +479,16 @@ public class MainActivity extends KR2Activity {
 					offsetY = viewLocation[1];
 				}
 				// Placed without echoing a mouse move back: the engine's mouse
-				// is already there, and it put it there itself.
-				gameMovesCursor = true;
+				// is already there, and it put it there itself. And placed
+				// without being shown: the game's own highlight IS the
+				// selection on this screen, so the ring keeps up in silence
+				// and appears again only when the pointer takes over.
 				placeCursor(stepAt[0] + offsetX, stepAt[1] + offsetY, false);
-				showCursor();
+				hideCursor("the game is drawing its own selection");
 				if (stepLogBudget > 0) {
 					stepLogBudget--;
 					Log.d(TAG, "the game moved its selection to "
-							+ cursorX + "," + cursorY + "; the ring follows it");
+							+ cursorX + "," + cursorY + "; the pointer follows it unseen");
 				}
 				return;
 			}
@@ -923,14 +921,9 @@ public class MainActivity extends KR2Activity {
 		return super.dispatchTouchEvent(event);
 	}
 
-	/**
-	 * The screen is no longer steering its own selection, so the ring is in
-	 * charge again -- and whether the last screen moved its own mouse says
-	 * nothing about the next one.
-	 */
+	/** The screen is no longer steering its own selection: the ring is in charge again. */
 	private void releaseGameSteering() {
 		gameSteers = false;
-		gameMovesCursor = false;
 	}
 
 	/** Take the ring off the screen, once, and say why. */
