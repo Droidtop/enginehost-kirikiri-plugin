@@ -750,6 +750,28 @@ public:
 			_mouseCursor->setPosition(pt);
 			_refadeMouseCursor();
 		}
+		// A mouse that moved sends a mouse move. On Windows this is not code at
+		// all: TTVPWindowForm::SetCursorPos calls ::SetCursorPos and the OS
+		// delivers the WM_MOUSEMOVE, so a script that warps the cursor gets the
+		// whole hover chain for free. There is no OS cursor here, so nothing
+		// downstream of a script-driven warp ever heard about it, and that is
+		// why the selection moved invisibly.
+		//
+		// It matters because a KAG menu draws its highlight from the MOUSE, not
+		// from the link list. Noble Works' title buttons are LinkButtonLayers
+		// under the message layer, and their mouse-over art comes from their own
+		// enter and move handling; MessageLayer.setFocusToLink moves the layer's
+		// internal link cursor AND warps the mouse precisely so that those
+		// buttons light up the way they do under a real pointer. Only half of
+		// that reached the screen.
+		//
+		// Posted rather than called, like every other mouse move here, so it is
+		// delivered after the script that caused it has finished; the handler it
+		// reaches (internalMouseMove -> findLink -> highlightLink) does not warp
+		// the cursor again, so there is no loop.
+		if (TJSNativeInstance)
+			TVPPostInputEvent(new tTVPOnMouseMoveInputEvent(TJSNativeInstance,
+				_LastMouseX, _LastMouseY, TVPGetCurrentShiftKeyState()));
 		// And tell the activity, which draws the ring the player actually sees.
 		float viewX = 0, viewY = 0;
 		if (_wrapperGameToView(PrimaryLayerArea, (float)x, (float)y, viewX, viewY)) {
