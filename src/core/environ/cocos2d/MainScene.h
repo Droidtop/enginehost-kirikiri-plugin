@@ -70,6 +70,7 @@ public:
 	void onWrapperFocusStep(int dirX, int dirY);
 	static void wrapperForgetFocusStep();
 	static int wrapperTakeFocusStep(int &viewX, int &viewY);
+	static bool wrapperTakeEngineCursor(int &viewX, int &viewY);
 
 private:
 	void onKeyPressed(cocos2d::EventKeyboard::KeyCode keyCode, cocos2d::Event* event);

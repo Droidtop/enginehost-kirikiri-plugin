@@ -76,8 +76,32 @@ static int _keyTraceBudget = 40;
  */
 static std::atomic<int> _wrapperStepAnswer(0);
 static std::atomic<int> _wrapperStepX(0), _wrapperStepY(0);
+/**
+ * Where the ENGINE last moved its own mouse cursor to, in view coordinates,
+ * with a flag that is raised when it moves and cleared when the activity
+ * collects it.
+ *
+ * The pointer is not the activity's alone. Script moves it too: KAG's
+ * MessageLayer.setFocusToLink assigns cursorX and cursorY to warp the mouse
+ * onto the link the arrow keys just selected, which reaches
+ * tTJSNI_BaseLayer::SetCursorY and then this window's SetCursorPos. That is
+ * the game saying where its selection now is, in the only terms it has.
+ *
+ * Without this channel the activity never heard it: the ring stayed wherever
+ * the last stick nudge left it while the engine's mouse walked the menu, so
+ * the D-pad looked dead, and the moment the user touched the stick the ring
+ * reappeared somewhere else entirely and a confirm clicked there instead of
+ * on the selected item. Two selections again, which is the one thing the
+ * pointer-and-focus rule forbids.
+ */
+static std::atomic<int> _wrapperEngineCursorMoved(0);
+static std::atomic<int> _wrapperEngineCursorX(0), _wrapperEngineCursorY(0);
+static bool _wrapperGameToView(cocos2d::Node *primaryLayerArea,
+	float gameX, float gameY, float &viewX, float &viewY);
 /** How many wrapper pointer moves still get a trace line. */
 static int _wrapperCursorTraceBudget = 8;
+/** How many engine-driven cursor moves still get a trace line. */
+static int _wrapperEngineCursorTraceBudget = 8;
 // How many directional steps dump every layer the focus walk looked at. Two is
 // enough to settle what a screen offers, and the dump is long.
 static int _wrapperStepTraceBudget = 2;
@@ -707,11 +731,37 @@ public:
 	virtual void SetCursorPos(tjs_int x, tjs_int y) {
 		Vec2 worldPt = PrimaryLayerArea->convertToWorldSpace(Vec2(x, PrimaryLayerArea->getContentSize().height - y));
 		Vec2 pt = getParent()->convertToNodeSpace(worldPt);
-		_LastMouseX = pt.x;
-		_LastMouseY = pt.y;
+		// x and y arrive in the primary layer's own coordinates -- that is what
+		// tTJSNI_BaseLayer::SetCursorPos walked them up the tree into -- and
+		// that is the space _LastMouse holds everywhere else it is written (see
+		// the touch handlers: node space, with the y flipped back). This used to
+		// store pt, which is the position of the cursor SPRITE in its parent
+		// node's space: a different origin and an unflipped y.
+		//
+		// It is the same field GetCursorPos hands back to Layer.cursorX, and the
+		// same one onWrapperFocusStep steps from, so after any script-driven
+		// cursor move both read a point that was never on the screen. The
+		// 2026-09-09 session shows it: every step after the first reported
+		// itself as coming from 813,46 or 813,226 while the game's own selection
+		// was walking a column at the other end of the screen.
+		_LastMouseX = x;
+		_LastMouseY = y;
 		if (_mouseCursor) {
 			_mouseCursor->setPosition(pt);
 			_refadeMouseCursor();
+		}
+		// And tell the activity, which draws the ring the player actually sees.
+		float viewX = 0, viewY = 0;
+		if (_wrapperGameToView(PrimaryLayerArea, (float)x, (float)y, viewX, viewY)) {
+			_wrapperEngineCursorX.store((int)viewX, std::memory_order_relaxed);
+			_wrapperEngineCursorY.store((int)viewY, std::memory_order_relaxed);
+			_wrapperEngineCursorMoved.store(1, std::memory_order_release);
+			if (_wrapperEngineCursorTraceBudget > 0) {
+				--_wrapperEngineCursorTraceBudget;
+				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+					"engine cursor: the game moved it to game %d,%d -> view %.0f,%.0f",
+					(int)x, (int)y, viewX, viewY);
+			}
 		}
 	}
 
@@ -2414,7 +2464,7 @@ void TVPMainScene::onPadKeyRepeat(cocos2d::Controller* ctrl, int code, cocos2d::
  * the primary layer's node rather than the window, because TVPWindowLayer's
  * fields are private to it and its friend TVPMainScene.
  */
-static bool _wrapperGameToView(Node *primaryLayerArea, float gameX, float gameY,
+static bool _wrapperGameToView(cocos2d::Node *primaryLayerArea, float gameX, float gameY,
 		float &viewX, float &viewY) {
 	if (!primaryLayerArea) return false;
 	Director *director = Director::getInstance();
@@ -2615,14 +2665,25 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 					device->SetFocusedLayer(report.PointerInside);
 					focused = device->GetFocusedLayer() == report.PointerInside;
 				}
+				// Named, because "a focusable layer" is not something anyone can
+				// check from outside. Which layer took the arrow decides whether
+				// KAG's link walk is what answers it -- that lives on the message
+				// layer and nowhere else -- and two device runs have now ended
+				// with the handover in the log and no way to tell what it handed
+				// to.
+				std::string held = "no layer to focus, falling back to the pointer";
+				if (report.PointerInside) {
+					const ttstr &name = report.PointerInside->GetName();
+					held = focused ? "it holds focus, the arrow will reach it" :
+						"it refused focus, falling back to the pointer";
+					held += ": ";
+					held += name.IsEmpty() ? std::string("(unnamed)") :
+						name.AsNarrowStdString();
+				}
 				__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
 					"wrapper step %d,%d from %d,%d: the pointer is inside a focusable"
 					" layer, so the screen steers itself (%s)",
-					dirX, dirY, (int)fromX, (int)fromY,
-					report.PointerInside ?
-						(focused ? "it holds focus, the arrow will reach it" :
-							"it refused focus, falling back to the pointer") :
-						"no layer to focus, falling back to the pointer");
+					dirX, dirY, (int)fromX, (int)fromY, held.c_str());
 				if (focused) {
 					_wrapperStepAnswer.store(3, std::memory_order_release);
 					return;
@@ -2679,6 +2740,24 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 
 void TVPMainScene::wrapperForgetFocusStep() {
 	_wrapperStepAnswer.store(0, std::memory_order_release);
+}
+
+/**
+ * Where the game moved the mouse to since this was last asked, if it did.
+ *
+ * The activity calls this after handing a screen its own arrow key, and puts
+ * the ring on the answer. KAG answers an arrow by selecting the next link and
+ * warping the mouse onto it, so the answer IS the game's selection: the ring
+ * lands on it rather than beside it, and the confirm that follows -- which is
+ * a click at the ring -- presses the thing the game has highlighted. One
+ * selection, moved by the game, drawn by both.
+ */
+bool TVPMainScene::wrapperTakeEngineCursor(int &viewX, int &viewY) {
+	if (!_wrapperEngineCursorMoved.load(std::memory_order_acquire)) return false;
+	viewX = _wrapperEngineCursorX.load(std::memory_order_relaxed);
+	viewY = _wrapperEngineCursorY.load(std::memory_order_relaxed);
+	_wrapperEngineCursorMoved.store(0, std::memory_order_release);
+	return true;
 }
 
 int TVPMainScene::wrapperTakeFocusStep(int &viewX, int &viewY) {

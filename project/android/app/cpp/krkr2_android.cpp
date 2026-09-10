@@ -275,6 +275,21 @@ extern "C" {
 		return answer;
 	}
 
+	// Where the GAME moved the mouse to, if it has since this was last asked.
+	// KAG answers an arrow key by selecting the next link and warping the mouse
+	// onto it, so this is the game's own selection coming back out; the activity
+	// puts the ring there. JNI_FALSE means the game has not moved it.
+	JNIEXPORT jboolean JNICALL Java_com_yuri_kirikiri2_MainActivity_nativeTakeEngineCursor(
+		JNIEnv * env, jclass cls, jfloatArray at) {
+		int x = 0, y = 0;
+		if (!TVPMainScene::wrapperTakeEngineCursor(x, y)) return JNI_FALSE;
+		if (at && env->GetArrayLength(at) >= 2) {
+			jfloat put[2] = { (jfloat)x, (jfloat)y };
+			env->SetFloatArrayRegion(at, 0, 2, put);
+		}
+		return JNI_TRUE;
+	}
+
 	JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(JNIEnv* env, jclass cls, jstring text) {
 		const char* pszText = env->GetStringUTFChars(text, NULL);
 		if (pszText && *pszText) {

@@ -96,6 +96,7 @@ public class MainActivity extends KR2Activity {
 	private static native void nativeVKKey(int vk, boolean down);
 	private static native void nativeFocusStep(int dirX, int dirY);
 	private static native int nativeTakeFocusStep(float[] at);
+	private static native boolean nativeTakeEngineCursor(float[] at);
 
 	/** What {@link #nativeTakeFocusStep} answers. */
 	private static final int STEP_WAITING = 0;
@@ -214,6 +215,13 @@ public class MainActivity extends KR2Activity {
 	 * outcomes available here.
 	 */
 	private static final int STEP_POLLS = 5;
+	/**
+	 * How many frames to watch for the game's own cursor move after handing it
+	 * an arrow key. Twelve is about a fifth of a second, which covers the
+	 * engine's queue plus a script handler, and is short enough that a screen
+	 * which never moves the mouse costs nothing noticeable.
+	 */
+	private static final int ENGINE_CURSOR_POLLS = 12;
 	/** Stepping while a direction is held: one step, a pause, then a stream. */
 	private static final long STEP_FIRST_MS = 400;
 	private static final long STEP_REPEAT_MS = 180;
@@ -294,7 +302,15 @@ public class MainActivity extends KR2Activity {
 	private boolean keyDirSteers;
 	/** The screen is moving its own selection with the keys; see STEP_GAME_STEERS. */
 	private boolean gameSteers;
+	/**
+	 * ...and that screen has been seen to warp the mouse onto what it selects,
+	 * so the ring can sit on the selection instead of coming off the screen.
+	 * Not known until the first handed-over arrow is answered, which is why the
+	 * ring is taken off for that first press and only that one.
+	 */
+	private boolean gameMovesCursor;
 	private final float[] stepAt = new float[2];
+	private int engineCursorPolls;
 	private final int[] viewLocation = new int[2];
 	private long clickDownTime;
 	private boolean legendShown;
@@ -343,7 +359,7 @@ public class MainActivity extends KR2Activity {
 			if (answer == STEP_MOVED) {
 				// The ring is in charge again, so it comes back: a screen that
 				// had taken the selection over has just given it up.
-				gameSteers = false;
+				releaseGameSteering();
 				showCursor();
 				// The engine answers in its own view's coordinates, which is
 				// what nativePointerMove takes; the ring is placed in the
@@ -380,8 +396,24 @@ public class MainActivity extends KR2Activity {
 				// different -- exactly what the pointer-and-focus rule
 				// forbids. Confirm follows the same handover and sends Return.
 				gameSteers = true;
-				hideCursor("the screen's own selection has it");
+				if (!gameMovesCursor)
+					hideCursor("the screen's own selection has it");
 				tapVK(arrowVK(stepDirX, stepDirY));
+				// And then watch for where the game puts its own mouse. KAG
+				// answers an arrow by selecting the next link and warping the
+				// cursor onto it (MessageLayer.setFocusToLink assigns cursorX
+				// and cursorY), which is the game saying where its selection
+				// now is. The ring goes there: on the selection, not beside
+				// it, so it is still one selection and the player can see it
+				// move. Until that arrives the ring stays off, because a ring
+				// left at the last stick position while the game's selection
+				// walks away IS the second selection -- and that is what the
+				// 2026-09-09 session looked like from the outside: the arrows
+				// were working, the game's selection was stepping, and nothing
+				// the player could see moved at all.
+				engineCursorPolls = 0;
+				handler.removeCallbacks(awaitEngineCursor);
+				handler.postDelayed(awaitEngineCursor, FRAME_MS);
 				if (stepLogBudget > 0) {
 					stepLogBudget--;
 					Log.d(TAG, "menu keys " + stepDirX + "," + stepDirY
@@ -402,7 +434,7 @@ public class MainActivity extends KR2Activity {
 			// one definite step now -- which is all a tap ever gets, because a
 			// tap is over before the ramp's first frame -- and then the ramp
 			// for as long as the direction is held.
-			gameSteers = false;
+			releaseGameSteering();
 			showCursor();
 			View root = getWindow().getDecorView();
 			float wasX = cursorX, wasY = cursorY;
@@ -426,6 +458,45 @@ public class MainActivity extends KR2Activity {
 			keyDirSteers = true;
 			lastPadInput = SystemClock.uptimeMillis();
 			pointerChanged();
+		}
+	};
+
+	/**
+	 * The game's own cursor move, collected after a handed-over arrow key.
+	 *
+	 * The key is posted onto the engine's event queue and answered on the
+	 * engine's thread, so the move it causes arrives some frames later; this
+	 * looks for it over about a fifth of a second and gives up quietly. A
+	 * screen whose layer takes arrow keys without moving the mouse is a real
+	 * case (a slider, an edit box), and there the ring simply stays off.
+	 */
+	private final Runnable awaitEngineCursor = new Runnable() {
+		@Override
+		public void run() {
+			if (!gameSteers) return;
+			if (nativeTakeEngineCursor(stepAt)) {
+				float offsetX = 0f, offsetY = 0f;
+				View gl = getGLSurfaceView();
+				if (gl != null) {
+					gl.getLocationInWindow(viewLocation);
+					offsetX = viewLocation[0];
+					offsetY = viewLocation[1];
+				}
+				// Placed without echoing a mouse move back: the engine's mouse
+				// is already there, and it put it there itself.
+				gameMovesCursor = true;
+				placeCursor(stepAt[0] + offsetX, stepAt[1] + offsetY, false);
+				showCursor();
+				if (stepLogBudget > 0) {
+					stepLogBudget--;
+					Log.d(TAG, "the game moved its selection to "
+							+ cursorX + "," + cursorY + "; the ring follows it");
+				}
+				return;
+			}
+			if (++engineCursorPolls < ENGINE_CURSOR_POLLS) {
+				handler.postDelayed(this, FRAME_MS);
+			}
 		}
 	};
 
@@ -770,7 +841,7 @@ public class MainActivity extends KR2Activity {
 		if (moving) {
 			// A stick is a pointer, and a pointer takes the selection back
 			// from whatever screen was steering with the keys.
-			if (stickX != 0f || stickY != 0f) gameSteers = false;
+			if (stickX != 0f || stickY != 0f) releaseGameSteering();
 			lastPadInput = SystemClock.uptimeMillis();
 			showCursor();
 			if (!pointerRunning) {
@@ -847,9 +918,19 @@ public class MainActivity extends KR2Activity {
 	 */
 	@Override
 	public boolean dispatchTouchEvent(MotionEvent event) {
-		gameSteers = false;
+		releaseGameSteering();
 		hideCursor("the screen was touched");
 		return super.dispatchTouchEvent(event);
+	}
+
+	/**
+	 * The screen is no longer steering its own selection, so the ring is in
+	 * charge again -- and whether the last screen moved its own mouse says
+	 * nothing about the next one.
+	 */
+	private void releaseGameSteering() {
+		gameSteers = false;
+		gameMovesCursor = false;
 	}
 
 	/** Take the ring off the screen, once, and say why. */
@@ -864,6 +945,20 @@ public class MainActivity extends KR2Activity {
 	private int sentPointerX = Integer.MIN_VALUE, sentPointerY = Integer.MIN_VALUE;
 
 	private void setCursor(float x, float y) {
+		placeCursor(x, y, true);
+	}
+
+	/**
+	 * The ring, put somewhere.
+	 *
+	 * tellEngine is false for the one case where the engine already knows: the
+	 * game moved its own mouse (KAG warps it onto the link an arrow key just
+	 * selected) and the ring is being brought to where the mouse already is.
+	 * Sending that position back as a mouse move would re-run the hover and
+	 * focus handling for a move that never happened, on top of the selection
+	 * the game is in the middle of making.
+	 */
+	private void placeCursor(float x, float y, boolean tellEngine) {
 		View root = getWindow().getDecorView();
 		cursorX = Math.max(0f, Math.min(root.getWidth() - 1, x));
 		cursorY = Math.max(0f, Math.min(root.getHeight() - 1, y));
@@ -922,7 +1017,7 @@ public class MainActivity extends KR2Activity {
 		if (px != sentPointerX || py != sentPointerY) {
 			sentPointerX = px;
 			sentPointerY = py;
-			sendPointerMove();
+			if (tellEngine) sendPointerMove();
 		}
 	}
 
