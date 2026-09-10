@@ -2521,11 +2521,20 @@ void TVPMainScene::onWrapperKey(int vk, bool down) {
  * already standing inside. That layer, though, answers arrow keys itself:
  * KAG's MessageLayer.onKeyDown walks its links with up/down/left/right,
  * moves its own cursor onto the chosen one so the button draws its
- * mouse-over image, and activates it on Return. So when the only focusable
- * layer is the one under the pointer, that layer is FOCUSED and the answer is
- * 3: the screen has its own selection and the activity hands it the arrow key
- * rather than sliding a ring over the top of it. One selection, drawn by the
- * game.
+ * mouse-over image, and activates it on Return. So when the pointer stands
+ * inside a focusable layer, that layer is FOCUSED and the answer is 3: the
+ * screen has its own selection and the activity hands it the arrow key rather
+ * than sliding a ring over the top of it. One selection, drawn by the game.
+ *
+ * That case is tried BEFORE the aligned-group pointer target, and that order
+ * is the whole of what build 94 changes. Both answers are reached by the same
+ * screens -- Noble Works' title has five link buttons in a column, so the
+ * shape heuristic finds a column of five things and the message layer holding
+ * them takes arrow keys -- and of the two, the game drawing its own highlight
+ * is the one the user asked for; a ring of ours drawn over a selection the
+ * game is also moving is two selections again. The heuristic stays as the
+ * fallback for a screen with nothing focusable to key: a KAG interface built
+ * of hover/click layers with focus disabled all the way down still navigates.
  *
  * Focusing it is not a nicety. A key reaches the focused layer and no other --
  * tTVPLayerManager::NotifyKeyDown fires FocusedLayer->FireKeyDown and returns
@@ -2573,20 +2582,17 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 			}
 		}
 		if (!step) {
-			if (report.HasPointerTarget) {
-				float viewX = 0, viewY = 0;
-				if (_wrapperGameToView(_currentWindowLayer->PrimaryLayerArea,
-					report.PointerTargetX, report.PointerTargetY, viewX, viewY)) {
-					__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
-						"wrapper step %d,%d from %d,%d: pointer target game %d,%d -> view %.0f,%.0f",
-						dirX, dirY, (int)fromX, (int)fromY,
-						(int)report.PointerTargetX, (int)report.PointerTargetY, viewX, viewY);
-					_wrapperStepX.store((int)viewX, std::memory_order_relaxed);
-					_wrapperStepY.store((int)viewY, std::memory_order_relaxed);
-					_wrapperStepAnswer.store(1, std::memory_order_release);
-					return;
-				}
-			}
+			// The engine's own keyboard navigation comes FIRST. Wherever the
+			// pointer stands inside a focusable layer that takes keys, that layer
+			// already has a selection of its own and draws it -- KAG's
+			// MessageLayer.onKeyDown walks its links on the arrows and runs the
+			// selected one on Return -- so handing it the arrow key is the game
+			// lighting its own buttons, which is the one selection the user asked
+			// for. The aligned-group pointer heuristic below moves a ring of OURS
+			// over the top of that, so it is the fallback for screens that have no
+			// focusable layer to key, not a competitor (coordinator decision,
+			// 2026-09-09). Build 92 shipped the heuristic and build 93 the
+			// handover in the other order, and the heuristic won every time.
 			if (report.PointerInsideFocusable) {
 				// Hand the screen its own arrow key -- but the screen has to be
 				// holding focus first, or there is nothing to hand it to. The
@@ -2615,13 +2621,31 @@ void TVPMainScene::onWrapperFocusStep(int dirX, int dirY) {
 					dirX, dirY, (int)fromX, (int)fromY,
 					report.PointerInside ?
 						(focused ? "it holds focus, the arrow will reach it" :
-							"IT REFUSED FOCUS, the arrow will be dropped") :
-						"no layer to focus, the arrow will be dropped");
+							"it refused focus, falling back to the pointer") :
+						"no layer to focus, falling back to the pointer");
+				if (focused) {
+					_wrapperStepAnswer.store(3, std::memory_order_release);
+					return;
+				}
 				// A layer that refuses focus cannot be keyed, and answering 3 would
 				// hide the ring and send an arrow nothing receives -- a dead
-				// direction. Steering the pointer at least still reaches the screen.
-				_wrapperStepAnswer.store(focused ? 3 : 2, std::memory_order_release);
-				return;
+				// direction. So this is precisely where the fallback belongs: fall
+				// through to the aligned-group pointer target, and to free pointer
+				// steering if there is not one either.
+			}
+			if (report.HasPointerTarget) {
+				float viewX = 0, viewY = 0;
+				if (_wrapperGameToView(_currentWindowLayer->PrimaryLayerArea,
+					report.PointerTargetX, report.PointerTargetY, viewX, viewY)) {
+					__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+						"wrapper step %d,%d from %d,%d: pointer target game %d,%d -> view %.0f,%.0f",
+						dirX, dirY, (int)fromX, (int)fromY,
+						(int)report.PointerTargetX, (int)report.PointerTargetY, viewX, viewY);
+					_wrapperStepX.store((int)viewX, std::memory_order_relaxed);
+					_wrapperStepY.store((int)viewY, std::memory_order_relaxed);
+					_wrapperStepAnswer.store(1, std::memory_order_release);
+					return;
+				}
 			}
 			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
 				"wrapper step %d,%d from %d,%d: nothing focusable that way",
