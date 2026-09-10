@@ -71,8 +71,9 @@ import org.tvp.kirikiri2.KR2Activity;
  * they are useless as a pointer, so the two sticks never fight.
  *
  * Keys. cancel, menu, skip, auto, history and the page actions become the
- * keys this engine and KAG actually read; what is behind each is spelled out
- * in {@link #vkForAction}. Which pad button carries which action is the
+ * keys KAG itself reads -- every one of them taken from the game's own
+ * MainWindow, not invented here; what is behind each is spelled out in
+ * {@link #vkForAction}. Which pad button carries which action is the
  * person's choice in Enginehost's controller settings, handed over as the
  * CONTROLLER_BINDINGS extra; {@link #DEFAULT_KEY_ACTIONS} only stands in when
  * no map arrives at all.
@@ -146,6 +147,7 @@ public class MainActivity extends KR2Activity {
 	private static final int VK_B = 0x42;
 	private static final int VK_F = 0x46;
 	private static final int VK_R = 0x52;
+	private static final int VK_F10 = 0x79;
 	/**
 	 * How long a KiriKiri key is held before its release is delivered. KAG
 	 * re-tests System.getKeyState when it finally processes the queued press,
@@ -270,7 +272,7 @@ public class MainActivity extends KR2Activity {
 		ACTION_MEANINGS.put("history", "backlog");
 		ACTION_MEANINGS.put("page_previous", "backlog page up");
 		ACTION_MEANINGS.put("page_next", "backlog page down");
-		ACTION_MEANINGS.put("menu", "menu (hold: this list)");
+		ACTION_MEANINGS.put("menu", "system menu (hold: this list)");
 	}
 
 	private final Handler handler = new Handler(Looper.getMainLooper());
@@ -1153,9 +1155,16 @@ public class MainActivity extends KR2Activity {
 			return true;
 		}
 		if ("menu".equals(action)) {
-			// A short press opens the engine's system menu; holding it shows
-			// the mapping, which is the one thing a person needs when they do
-			// not know what a button does.
+			// A short press opens the GAME'S system menu -- the save, load and
+			// config the host's binding screen calls "System menu" -- and
+			// holding it shows the mapping, which is the one thing a person
+			// needs when they do not know what a button does.
+			//
+			// It used to send Android's KEYCODE_MENU, which opens Kirikiroid2's
+			// own bar: the emulator's menu, not the game's, and not what the
+			// button says it is. That bar is still there for anyone who wants
+			// it -- the console's own back gesture reaches it, because this
+			// class only intercepts the key codes the controller map names.
 			if (down) {
 				handler.postDelayed(showLegend, LEGEND_HOLD_MS);
 			} else {
@@ -1164,8 +1173,7 @@ public class MainActivity extends KR2Activity {
 					legendShown = false;
 					if (legendView != null) legendView.setVisibility(View.GONE);
 				} else {
-					org.tvp.kirikiri2.KR2Activity.nativeKeyAction(KeyEvent.KEYCODE_MENU, true);
-					org.tvp.kirikiri2.KR2Activity.nativeKeyAction(KeyEvent.KEYCODE_MENU, false);
+					tapVK(vkForAction(action));
 				}
 			}
 			return true;
@@ -1196,6 +1204,13 @@ public class MainActivity extends KR2Activity {
 	 * toggles auto, R opens the backlog, Escape is what a right click does,
 	 * B steps back one text and F runs forward to the next stop.
 	 *
+	 * menu is F10, and it is the only one that does not go through
+	 * processKeys. KAG hangs its system menu off a menu bar, and
+	 * makePseudoMenuTable gives that bar the F10 shortcut itself when a game
+	 * has named none; MainWindow.onKeyDown offers every key to
+	 * pseudoMenuShortcut before anything else, so F10 opens the menu even
+	 * while a layer holds focus, which none of the others do.
+	 *
 	 * page_previous and page_next are B and F rather than the page keys. The
 	 * previous page of a visual novel is the line before this one, which is
 	 * what KAG's goBackByKey gives; the page keys only mean anything inside
@@ -1209,7 +1224,8 @@ public class MainActivity extends KR2Activity {
 	 * presses one can see that it was received and meant nothing.
 	 */
 	private static int vkForAction(String action) {
-		if ("cancel".equals(action)) return VK_ESCAPE;
+		if ("menu".equals(action)) return VK_F10;
+	if ("cancel".equals(action)) return VK_ESCAPE;
 		if ("skip".equals(action)) return VK_CONTROL;
 		if ("auto".equals(action)) return VK_A;
 		if ("history".equals(action)) return VK_R;
