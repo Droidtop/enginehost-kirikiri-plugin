@@ -251,7 +251,15 @@ build_lz4()
 build_archive()
 {
     if ! [ -d $ARCHIVE_SRC/build_$PLATFORM ]; then mkdir -p $ARCHIVE_SRC/build_$PLATFORM ;fi
-    cp -rf $CMAKELISTS_PATH/thirdparty/patch/android_android_lf.h  $ARCHIVE_SRC/libarchive/android_lf.h
+    # libarchive's large-file shim -- Android has no _FILE_OFFSET_BITS=64, so
+    # this redirects open/lseek/stat and the rest to their 64-bit forms. The
+    # path named here has no such file and `cp` has been failing silently in
+    # every build (the scripts do not stop on it); the file is one directory
+    # down, filed under sdl2/ with the other android_ patches. It went
+    # unnoticed because the aarch64 tree is downloaded from upstream rather
+    # than built here, and it matters most on a 32-bit ABI, which is where a
+    # 32-bit off_t is what you get without it.
+    cp -rf $CMAKELISTS_PATH/thirdparty/patch/sdl2/android_android_lf.h  $ARCHIVE_SRC/libarchive/android_lf.h
 
     pushd $ARCHIVE_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \

@@ -154,9 +154,39 @@ function fetch_oniguruma()
 
 function fetch_syscall()
 {
-    SYSCALL_NAME=linux-syscall-support
+    # breakpad does not vendor linux-syscall-support; its DEPS names the exact
+    # upstream revision it is written against (src/src/third_party/lss). The
+    # mirror this used to clone, adelshokhy112/linux-syscall-support, is a 2015
+    # snapshot of that same upstream whose newest commit is upstream's own, so
+    # it is not a fork with anything in it -- it is ten years behind. On a
+    # 32-bit ABI that gap is fatal: it declares only the one-argument old_mmap
+    # (__NR_mmap) and the six-argument mmap2, while breakpad's
+    # memory_allocator.h calls sys_mmap with six arguments, so every source
+    # that includes it stops at "no matching function for call to sys_mmap".
+    # Upstream closed that afterwards with an "implement mmap() with mmap2()"
+    # definition for precisely the architectures that have __NR_mmap2. Take the
+    # revision breakpad names instead of patching a stale copy.
+    #
+    # The directory carries the revision in its name so that upstream's
+    # thirdparty_port.tar.gz, which unpacks the old copy under the plain name,
+    # cannot satisfy the "already fetched" test and leave the old header in
+    # place. The header is laid out as lss/linux_syscall_support.h because that
+    # is the path breakpad includes it by.
+    SYSCALL_REV=29164a80da4d41134950d76d55199ea33fbb9613
+    SYSCALL_NAME=linux-syscall-support-$SYSCALL_REV
     SYSCALL_SRC=$CMAKELISTS_PATH/thirdparty/port/$SYSCALL_NAME
-    fetch_port2 https://github.com/adelshokhy112 $SYSCALL_NAME
+    if ! [ -d "$SYSCALL_SRC" ]; then
+        echo "## fetch_port linux-syscall-support @$SYSCALL_REV"
+        syscall_git=$SYSCALL_SRC.git
+        rm -rf $syscall_git
+        git init -q $syscall_git
+        git -C $syscall_git fetch -q --depth 1             https://chromium.googlesource.com/linux-syscall-support $SYSCALL_REV
+        git -C $syscall_git checkout -q FETCH_HEAD
+        mkdir -p $SYSCALL_SRC/lss
+        cp $syscall_git/linux_syscall_support.h $SYSCALL_SRC/lss/
+        cp $syscall_git/LICENSE $SYSCALL_SRC/
+        rm -rf $syscall_git
+    fi
 }
 
 function fetch_breakpad()
