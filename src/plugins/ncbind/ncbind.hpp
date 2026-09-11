@@ -401,6 +401,21 @@ NCB_TYPECONV_CAST_INTEGER(  signed short);
 NCB_TYPECONV_CAST_INTEGER(unsigned short);
 NCB_TYPECONV_CAST_INTEGER(signed long);
 NCB_TYPECONV_CAST_INTEGER(unsigned long);
+// long long completes the list, and on a 32-bit ABI it is the whole reason the
+// list exists. These entries map a C++ integer type onto tTVInteger; a type
+// that is not in the map falls back to a probe for a direct conversion to
+// tTJSVariant, which is ambiguous unless one of its constructors matches
+// exactly (bool, tjs_int32, tjs_int64, tjs_real). On LP64 -- arm64-v8a -- that
+// hid the gap: int64_t is long and uint64_t is unsigned long, both listed
+// above. On ILP32 -- x86 and armeabi-v7a -- int64_t is long long, which still
+// matches the tjs_int64 constructor exactly, but uint64_t is unsigned long
+// long, which matches nothing and is convertible to three of them equally, so
+// every tjs_uint64 in a bound signature (StoragesFstat::getLastModifiedFileTime
+// is the first) failed to compile. They are two more standard integer types,
+// distinct from long on either ABI, so this is a gap in the list rather than a
+// 32-bit special case.
+NCB_TYPECONV_CAST_INTEGER(signed long long);
+NCB_TYPECONV_CAST_INTEGER(unsigned long long);
 NCB_TYPECONV_CAST_REAL(            float);
 NCB_TYPECONV_CAST_REAL(           double);
 NCB_TYPECONV_CAST(            bool, bool);
