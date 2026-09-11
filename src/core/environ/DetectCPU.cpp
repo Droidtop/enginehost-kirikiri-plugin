@@ -162,7 +162,7 @@ static void TVPDisableCPU(tjs_uint32 featurebit, const tjs_char *name)
 #endif
 }
 
-#if defined(WIN32) || defined(__ANDROID__)
+#if (defined(WIN32) || defined(__ANDROID__)) && (defined(__arm__) && !defined(__aarch64__))
 #include <cpu-features.h>
 #endif
 //---------------------------------------------------------------------------
@@ -175,17 +175,29 @@ void TVPDetectCPU()
 	//if(SDL_HasSSE())  TVPCPUFeatures |= TVP_CPU_HAS_SSE;
 	//if(SDL_HasMMX())  TVPCPUFeatures |= TVP_CPU_HAS_MMX;
 	//if(SDL_HasSSE2()) TVPCPUFeatures |= TVP_CPU_HAS_SSE2;
+// The family decides which routes TVPGL_ASM_Init is allowed to install, so it
+// has to be the family this translation unit was actually compiled for. It used
+// to read "must be arm" with NEON asserted for any 64-bit build, which is true
+// of the console and false of an x86_64 one -- and on 32-bit x86 the
+// android_getCpuFeatures() call below would not even have linked, since nothing
+// compiles the NDK's cpufeatures sources here.
 #if defined(__ANDROID__) || defined(WIN32)
-    //if (android_getCpuFamily() == ANDROID_CPU_FAMILY_ARM) {
-        TVPCPUFeatures |= TVP_CPU_FAMILY_ARM; // must be arm
-#if defined(__arm64__) || defined(__aarch64__) || defined(__LP64__)
-		TVPCPUFeatures |= TVP_CPU_HAS_NEON; // aka. asimd
+#if defined(__arm__) || defined(__arm64__) || defined(__aarch64__)
+        TVPCPUFeatures |= TVP_CPU_FAMILY_ARM;
+#if defined(__arm64__) || defined(__aarch64__)
+		TVPCPUFeatures |= TVP_CPU_HAS_NEON; // aka. asimd, mandatory on AArch64
 #else
         if((android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON) != 0) {
             TVPCPUFeatures |= TVP_CPU_HAS_NEON;
         }
 #endif
-    //}
+#elif defined(__x86_64__)
+        // MMX, SSE and SSE2 are part of the x86_64 architecture itself and part
+        // of Android's x86 ABI baseline, so they need no runtime check.
+        TVPCPUFeatures |= TVP_CPU_FAMILY_X64 | TVP_CPU_HAS_MMX | TVP_CPU_HAS_SSE | TVP_CPU_HAS_SSE2;
+#elif defined(__i386__)
+        TVPCPUFeatures |= TVP_CPU_FAMILY_X86 | TVP_CPU_HAS_MMX | TVP_CPU_HAS_SSE | TVP_CPU_HAS_SSE2;
+#endif
 #endif
 #ifdef __APPLE__
     // must be iOS

@@ -68,10 +68,27 @@ file(GLOB KRKR2CORE_CODE
 
 file(GLOB KRKR2CORE_CODEANDROID
     ${KRKR2CORE_PATH}/environ/android/*.cpp
-    ${KRKR2CORE_PATH}/sound/ARM/*.c
-    ${KRKR2CORE_PATH}/sound/ARM/*.cpp
-    ${KRKR2CORE_PATH}/visual/ARM/*.cpp
-    ${KRKR2CORE_PATH}/visual/ARM/*.c
+)
+
+# The hand-written routes are two entry points and no more: TVPGL_ASM_Init
+# swaps entries into the graphics function table tvpgl.cpp filled in, and
+# TVPWaveMixer_ASM_Init swaps entries into the mixer tables WaveMixer.cpp
+# filled in. sound/ARM and visual/ARM answer both with NEON; sound/generic and
+# visual/generic answer both by leaving the C implementations where they are.
+# A target compiles one directory or the other, never both -- visual/ARM
+# includes <arm_neon.h> at its first line, so it is not a matter of #ifdefs
+# inside it.
+if(ANDROID_ABI MATCHES "^(arm64-v8a|armeabi)" OR CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm|aarch64)")
+    set(KRKR2CORE_ASM_ROUTE ARM)
+else()
+    set(KRKR2CORE_ASM_ROUTE generic)
+endif()
+message(STATUS "krkr2core: ${KRKR2CORE_ASM_ROUTE} routes for ANDROID_ABI=${ANDROID_ABI}")
+file(GLOB KRKR2CORE_CODEASM
+    ${KRKR2CORE_PATH}/sound/${KRKR2CORE_ASM_ROUTE}/*.c
+    ${KRKR2CORE_PATH}/sound/${KRKR2CORE_ASM_ROUTE}/*.cpp
+    ${KRKR2CORE_PATH}/visual/${KRKR2CORE_ASM_ROUTE}/*.c
+    ${KRKR2CORE_PATH}/visual/${KRKR2CORE_ASM_ROUTE}/*.cpp
 )
 
 list(REMOVE_ITEM KRKR2CORE_CODE
@@ -92,7 +109,7 @@ list(REMOVE_ITEM KRKR2CORE_CODE
 )
 
 if(CMAKE_SYSTEM_NAME MATCHES "Android")
-    list(APPEND KRKR2CORE_CODE ${KRKR2CORE_CODEANDROID})
+    list(APPEND KRKR2CORE_CODE ${KRKR2CORE_CODEANDROID} ${KRKR2CORE_CODEASM})
     set(PLATFORM android)
 elseif(CMAKE_SYSTEM_NAME MATCHES "Linux")
     set(PLATFORM linux)
@@ -166,6 +183,14 @@ target_compile_options(${PROJECT_NAME} PUBLIC
 target_link_directories(${PROJECT_NAME} PUBLIC
     ${PORTBUILD_PATH}/lib
 )
+# libtegra_hal.a is opencv's ARM HAL; script/_android.sh builds and installs it
+# on an ARM target and turns IPP off everywhere else, so there is nothing of
+# the kind to link on x86.
+if(KRKR2CORE_ASM_ROUTE STREQUAL "ARM")
+    set(KRKR2CORE_OPENCV_HAL tegra_hal)
+else()
+    set(KRKR2CORE_OPENCV_HAL "")
+endif()
 target_link_libraries(${PROJECT_NAME} PUBLIC
     -Wl,-Bstatic
     # audio
@@ -182,7 +207,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     jpeg_static
     opencv_imgproc
     opencv_core
-    tegra_hal
+    ${KRKR2CORE_OPENCV_HAL}
     
     # video
     avutil_static

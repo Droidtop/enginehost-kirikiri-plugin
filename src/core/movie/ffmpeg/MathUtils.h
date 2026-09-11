@@ -9,11 +9,18 @@
 // avoid including system.h or other magic includes.
 // use 'gcc -dM -E - < /dev/null' or similar to find them.
 
+// The alternative to the portable implementation below is x87 inline assembly
+// with "t" and "u" register constraints, which is neither reachable nor
+// correct on an Android x86 target: clang compiles floating point there
+// through SSE, and the x86_64 ABI returns doubles in xmm0 rather than on the
+// x87 stack. The portable version is exact for every input this engine rounds
+// (its own comment proves the bound), so Android takes it on every ABI.
 #if defined(__ppc__) || \
     defined(__powerpc__) || \
     defined(__mips__) || \
     defined(__arm__) || \
-    defined(__aarch64__)
+    defined(__aarch64__) || \
+    defined(__ANDROID__)
   #define DISABLE_MATHUTILS_ASM_ROUND_INT
 #endif
 NS_KRMOVIE_BEGIN
