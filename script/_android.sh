@@ -1,40 +1,49 @@
-# must use after _fetch.sh from cross_androida64.sh
+# The dependency builds, one call site per library. Sourced by cross_android.sh
+# after _fetch.sh and parameterized by the target: $ABI is the Android ABI name
+# the NDK and cocos2d-x both use, $TRIPLE the toolchain triple, $API the minimum
+# platform level, $FFARCH what ffmpeg's configure calls the architecture, and
+# $IS_ARM whether this target is an ARM one. Upstream shipped this file as
+# _androida64.sh with aarch64-linux-android and arm64-v8a written out at every
+# call site; it is the same set of builds with the target named once instead.
+
+CLANG=$TRIPLE$API-clang
+CLANGXX=$TRIPLE$API-clang++
 
 # audio
-build_opus() 
+build_opus()
 {
     if ! [ -d $OPUS_SRC/build_$PLATFORM ]; then mkdir -p $OPUS_SRC/build_$PLATFORM ;fi
-    
+
     pushd $OPUS_SRC/build_$PLATFORM
-    ../configure --host=aarch64-linux-android \
-        CC=aarch64-linux-android21-clang  AR=llvm-ar \
-        CXX=aarch64-linux-android21-clang++ \
+    ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar \
+        CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic
     make -j$CORE_NUM &&  make install
     popd
 }
 
-build_ogg() 
+build_ogg()
 {
     if ! [ -d $OGG_SRC/build_$PLATFORM ]; then mkdir -p $OGG_SRC/build_$PLATFORM ;fi
-    
+
     pushd $OGG_SRC/build_$PLATFORM
-    ../configure --host=aarch64-linux-android \
-        CC=aarch64-linux-android21-clang  AR=llvm-ar \
-        CXX=aarch64-linux-android21-clang++ \
+    ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar \
+        CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic
     make -j$CORE_NUM &&  make install
     popd
 }
 
-build_vorbis() 
+build_vorbis()
 {
     if ! [ -d $VORBIS_SRC/build_$PLATFORM ]; then mkdir -p $VORBIS_SRC/build_$PLATFORM ;fi
-    
+
     pushd $VORBIS_SRC/build_$PLATFORM
-    ../configure --host=aarch64-linux-android \
-        CC=aarch64-linux-android21-clang  AR=llvm-ar \
-        CXX=aarch64-linux-android21-clang++ \
+    ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar \
+        CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic \
         --with-ogg=$PORTBUILD_PATH
     make -j$CORE_NUM &&  make install
@@ -44,36 +53,36 @@ build_vorbis()
 build_opusfile() # after ogg, opus, vorbits
 {
     if ! [ -d $OPUSFILE_SRC/build_$PLATFORM ]; then mkdir -p $OPUSFILE_SRC/build_$PLATFORM ;fi
-    
+
     pushd $OPUSFILE_SRC/build_$PLATFORM
-    ../configure --host=aarch64-linux-android \
-        CC=aarch64-linux-android21-clang  AR=llvm-ar \
-        CXX=aarch64-linux-android21-clang++ \
+    ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar \
+        CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic \
         DEPS_CFLAGS="-I$PORTBUILD_PATH/include -I$PORTBUILD_PATH/include/opus" \
         DEPS_LIBS="-L$PORTBUILD_PATH/lib -logg -lopus" \
         --disable-http --disable-examples
     make -j$CORE_NUM &&  make install
-    
+
     cp -rf $CMAKELISTS_PATH/thirdparty/patch/opus/opusfile.h $PORTBUILD_PATH/include/opus/opusfile.h
-    
+
     popd
 }
 
 build_oboe()
 {
     if ! [ -d $OBOE_SRC/build_$PLATFORM ]; then mkdir -p $OBOE_SRC/build_$PLATFORM ;fi
-    
-    pushd $OBOE_SRC/build_$PLATFORM 
+
+    pushd $OBOE_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH \
         -DLIBTYPE=STATIC
-    make -j$CORE_NUM &&  make install 
+    make -j$CORE_NUM &&  make install
 
-    mv -f $PORTBUILD_PATH/lib/arm64-v8a/liboboe.a $PORTBUILD_PATH/lib/liboboe.a
+    mv -f $PORTBUILD_PATH/lib/$ABI/liboboe.a $PORTBUILD_PATH/lib/liboboe.a
 
     popd
 }
@@ -85,31 +94,35 @@ build_openal()
     pushd $OPENAL_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH \
         -DLIBTYPE=STATIC
-    make -j$CORE_NUM &&  make install 
+    make -j$CORE_NUM &&  make install
     popd
 }
 
 # video
-build_jpeg() 
+build_jpeg()
 {
     if ! [ -d $JPEG_SRC/build_$PLATFORM ]; then mkdir -p $JPEG_SRC/build_$PLATFORM ;fi
-    
+
     pushd $JPEG_SRC/build_$PLATFORM
     NDK_PATH=$NDK_HOME
     TOOLCHAIN=clang
-    ANDROID_VERSION=21
+    # libjpeg-turbo's ARM SIMD is .S assembly the NDK's own clang assembles.
+    # Its x86 SIMD is NASM syntax and wants a nasm or yasm the NDK does not
+    # carry, so on an x86 target the C paths are built instead -- stated here
+    # rather than left to whatever assembler happens to be on the machine.
+    if [ "$IS_ARM" = yes ]; then SIMD_ARG=; else SIMD_ARG=-DWITH_SIMD=OFF; fi
     cmake .. -G "Unix Makefiles" \
-        -DANDROID_ABI=arm64-v8a \
+        -DANDROID_ABI=$ABI \
         -DANDROID_ARM_MODE=arm \
-        -DANDROID_PLATFORM=android-${ANDROID_VERSION} \
+        -DANDROID_PLATFORM=android-${API} \
         -DANDROID_TOOLCHAIN=${TOOLCHAIN} \
-        -DCMAKE_ASM_FLAGS="--target=aarch64-linux-android${ANDROID_VERSION}" \
+        -DCMAKE_ASM_FLAGS="--target=$TRIPLE${API}" \
         -DCMAKE_TOOLCHAIN_FILE=${NDK_PATH}/build/cmake/android.toolchain.cmake \
-        -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH
+        -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH $SIMD_ARG
     make -j$CORE_NUM &&  make install
     popd
 }
@@ -118,10 +131,16 @@ build_opencv()
 {
     if ! [ -d $OPENCV_SRC/build_$PLATFORM ]; then mkdir -p $OPENCV_SRC/build_$PLATFORM ;fi
 
+    # libtegra_hal.a is opencv's ARM HAL and has no x86 counterpart; left to
+    # itself a non-ARM build reaches for the IPP archives instead, which it
+    # downloads at configure time. Turn IPP off and link neither: what the
+    # engine asks of opencv is imgproc over core, which the C paths serve.
+    if [ "$IS_ARM" = yes ]; then HAL_ARGS=; else HAL_ARGS="-DWITH_IPP=OFF -DBUILD_IPP_IW=OFF"; fi
+
     pushd $OPENCV_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH \
         -DWITH_CUDA=OFF -DWITH_MATLAB=OFF -DBUILD_ANDROID_EXAMPLES=OFF \
         -DBUILD_DOCS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF \
@@ -130,27 +149,34 @@ build_opencv()
         -DBUILD_opencv_dnn=OFF -DBUILD_opencv_gapi=OFF -DBUILD_opencv_hal=ON \
         -DBUILD_opencv_photo=OFF -DBUILD_opencv_python=OFF -DBUILD_opencv_shape=OFF \
         -DBUILD_opencv_stitching=OFF -DBUILD_opencv_superres=OFF -DWITH_ITT=OFF \
-        -DBUILD_opencv_ts=OFF -DBUILD_opencv_videostab=OFF -DBUILD_ANDROID_PROJECTS=OFF
+        -DBUILD_opencv_ts=OFF -DBUILD_opencv_videostab=OFF -DBUILD_ANDROID_PROJECTS=OFF \
+        $HAL_ARGS
     make -j$CORE_NUM &&  make install
-    
-    cp -rf  $PORTBUILD_PATH/sdk/native/3rdparty/libs/arm64-v8a/*.a $PORTBUILD_PATH/lib
-    cp -rf  $PORTBUILD_PATH/sdk/native/staticlibs/arm64-v8a/libtegra_hal.a $PORTBUILD_PATH/lib
-    
+
+    cp -rf  $PORTBUILD_PATH/sdk/native/3rdparty/libs/$ABI/*.a $PORTBUILD_PATH/lib || true
+    if [ "$IS_ARM" = yes ]; then
+        cp -rf  $PORTBUILD_PATH/sdk/native/staticlibs/$ABI/libtegra_hal.a $PORTBUILD_PATH/lib
+    fi
+
     popd
 }
 
-build_ffmpeg() 
+build_ffmpeg()
 {
     if ! [ -d $FFMPEG_SRC/build_$PLATFORM ]; then mkdir -p $FFMPEG_SRC/build_$PLATFORM ;fi
-    
+
     pushd $FFMPEG_SRC
-    git apply  $CMAKELISTS_PATH/thirdparty/patch/ffmpeg/android_ffmpeg.diff
+    # The patch is against the source tree, not the build directory, so a
+    # second ABI in the same checkout finds it already applied.
+    if git apply --check $CMAKELISTS_PATH/thirdparty/patch/ffmpeg/android_ffmpeg.diff 2>/dev/null; then
+        git apply $CMAKELISTS_PATH/thirdparty/patch/ffmpeg/android_ffmpeg.diff
+    fi
     cd build_$PLATFORM
-    ../configure --enable-cross-compile --cross-prefix=aarch64-linux-android- \
-        --cc=aarch64-linux-android21-clang  --ar=llvm-ar \
-        --cxx=aarch64-linux-android21-clang++ --ranlib=llvm-ranlib \
+    ../configure --enable-cross-compile --cross-prefix=$TRIPLE- \
+        --cc=$CLANG  --ar=llvm-ar \
+        --cxx=$CLANGXX --ranlib=llvm-ranlib \
         --strip=llvm-strip --prefix=$PORTBUILD_PATH \
-        --arch=aarch64 --target-os=android --enable-pic --disable-asm \
+        --arch=$FFARCH --target-os=android --enable-pic --disable-asm \
         --enable-static --enable-shared --enable-small --enable-swscale \
         --disable-ffmpeg --disable-ffplay --disable-ffprobe \
         --disable-avdevice --disable-programs --disable-doc --enable-stripping
@@ -161,21 +187,21 @@ build_ffmpeg()
 }
 
 # archive
-build_unrar() 
-{   
+build_unrar()
+{
     cp -rf $CMAKELISTS_PATH/thirdparty/patch/unrar/android_ulinks.cpp $UNRAR_SRC/ulinks.cpp
-    
+
     pushd $UNRAR_SRC
     make clean
     make lib -j$CORE_NUM \
-        CXX=aarch64-linux-android21-clang++ \
+        CXX=$CLANGXX \
         AR=llvm-ar STRIP=llvm-strip \
-        DESTDIR=$PORTBUILD_PATH  
-    
-    if ! [ -d $PORTBUILD_PATH/include/unrar ]; then mkdir -p $PORTBUILD_PATH/include/unrar ;fi 
+        DESTDIR=$PORTBUILD_PATH
+
+    if ! [ -d $PORTBUILD_PATH/include/unrar ]; then mkdir -p $PORTBUILD_PATH/include/unrar ;fi
     cp -rf *.a $PORTBUILD_PATH/lib
     cp -rf *.hpp $PORTBUILD_PATH/include/unrar
-    
+
     popd
 }
 
@@ -184,15 +210,15 @@ build_lz4()
     pushd $LZ4_SRC
     make clean
     make lib -j$CORE_NUM \
-        CC=aarch64-linux-android21-clang \
-        CXX=aarch64-linux-android21-clang++ \
+        CC=$CLANG \
+        CXX=$CLANGXX \
         AR=llvm-ar STRIP=llvm-strip \
         WINBASED=no
-    
-    if ! [ -d $PORTBUILD_PATH/include/lz4 ]; then mkdir -p $PORTBUILD_PATH/include/lz4 ;fi 
+
+    if ! [ -d $PORTBUILD_PATH/include/lz4 ]; then mkdir -p $PORTBUILD_PATH/include/lz4 ;fi
     cp -rp lib/*.a $PORTBUILD_PATH/lib
     cp -rp lib/*.h $PORTBUILD_PATH/include/lz4
-    
+
     popd
 }
 
@@ -200,19 +226,19 @@ build_archive()
 {
     if ! [ -d $ARCHIVE_SRC/build_$PLATFORM ]; then mkdir -p $ARCHIVE_SRC/build_$PLATFORM ;fi
     cp -rf $CMAKELISTS_PATH/thirdparty/patch/android_android_lf.h  $ARCHIVE_SRC/libarchive/android_lf.h
-    
+
     pushd $ARCHIVE_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DENABLE_OPENSSL=OFF -DENABLE_TEST=OFF \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH
     make -j$CORE_NUM &&  make install
 
-    if ! [ -d $PORTBUILD_PATH/include/libarchive ]; then mkdir -p $PORTBUILD_PATH/include/libarchive ;fi 
+    if ! [ -d $PORTBUILD_PATH/include/libarchive ]; then mkdir -p $PORTBUILD_PATH/include/libarchive ;fi
     mv -f $PORTBUILD_PATH/include/archive.h $PORTBUILD_PATH/include/libarchive
     mv -f $PORTBUILD_PATH/include/archive_entry.h $PORTBUILD_PATH/include/libarchive
-    
+
     popd
 }
 
@@ -225,12 +251,12 @@ build_p7zip()
     pushd $P7ZIP_SRC/build_$PLATFORM
     cmake ../CPP/ANDROID/7za/jni -G "Unix Makefiles" \
         -DCMAKE_BUILD_TYPE=MinSizeRel \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake
     make -j$CORE_NUM
-    
-    if ! [ -d $PORTBUILD_PATH/include/p7zip/C ]; then mkdir -p $PORTBUILD_PATH/include/p7zip/C ;fi 
-    if ! [ -d $PORTBUILD_PATH/include/p7zip/CPP ]; then mkdir -p $PORTBUILD_PATH/include/p7zip/CPP ;fi 
+
+    if ! [ -d $PORTBUILD_PATH/include/p7zip/C ]; then mkdir -p $PORTBUILD_PATH/include/p7zip/C ;fi
+    if ! [ -d $PORTBUILD_PATH/include/p7zip/CPP ]; then mkdir -p $PORTBUILD_PATH/include/p7zip/CPP ;fi
     cp -rf lib7za.a $PORTBUILD_PATH/lib
     cp -rf ../C/*.h  $PORTBUILD_PATH/include/p7zip/C
     cp -rf ../CPP  $PORTBUILD_PATH/include/p7zip
@@ -248,13 +274,13 @@ build_oniguruma()
 {
     if ! [ -d $ONIGURUMA_SRC/build_$PLATFORM ]; then mkdir -p $ONIGURUMA_SRC/build_$PLATFORM ;fi
     cp -rf $CMAKELISTS_PATH/thirdparty/patch/oniguruma/oniguruma.cmake $ONIGURUMA_SRC/CMakeLists.txt
-    
+
     pushd $ONIGURUMA_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
-        -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH 
-    make -j$CORE_NUM &&  make install 
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
+        -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH
+    make -j$CORE_NUM &&  make install
     popd
 }
 
@@ -262,11 +288,11 @@ build_breakpad() # after linux-syscall
 {
     if ! [ -d $BREAKPAD_SRC/build_$PLATFORM ]; then mkdir -p $BREAKPAD_SRC/build_$PLATFORM ;fi
     cp -rf $SYSCALL_SRC/lss $BREAKPAD_SRC/src/third_party/
-    
+
     pushd $BREAKPAD_SRC/build_$PLATFORM
-    ../configure --host=aarch64-linux-android \
-        CC=aarch64-linux-android21-clang  AR=llvm-ar \
-        CXX=aarch64-linux-android21-clang++ STRIP=llvm-strip \
+    ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar \
+        CXX=$CLANGXX STRIP=llvm-strip \
         --prefix=$PORTBUILD_PATH \
         --disable-tools
     make -j$CORE_NUM &&  make install-strip
@@ -278,15 +304,15 @@ build_sdl2()
 {
     if ! [ -d $SDL2_SRC/build_$PLATFORM ]; then mkdir -p $SDL2_SRC/build_$PLATFORM ;fi
     cp -rf $CMAKELISTS_PATH/thirdparty/patch/sdl2/android_SDL_android.c  $SDL2_SRC/src/core/android/SDL_android.c
-    
+
     pushd $SDL2_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DANDROID=ON -DCMAKE_SYSTEM_NAME=Linux \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH \
         -DHIDAPI=OFF -DHAVE_GCC_WDECLARATION_AFTER_STATEMENT=OFF
-    make -j$CORE_NUM &&  make install 
+    make -j$CORE_NUM &&  make install
     popd
 }
 
@@ -299,25 +325,25 @@ build_cocos2dx()
     cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_Java_org_cocos2dx_lib_Cocos2dxHelper.h $COCOS2DX_SRC/cocos/platform/android/jni/Java_org_cocos2dx_lib_Cocos2dxHelper.h
     cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_Java_org_cocos2dx_lib_Cocos2dxHelper.cpp $COCOS2DX_SRC/cocos/platform/android/jni/Java_org_cocos2dx_lib_Cocos2dxHelper.cpp
 
-
     pushd $COCOS2DX_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
-        -DANDROID_PLATFORM=21 -DANDROID_ABI=arm64-v8a \
+        -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_INSTALL_PREFIX=$PORTBUILD_PATH \
         -DBUILD_TESTS=OFF -DBUILD_LUA_LIBS=OFF -DBUILD_JS_LIBS=OFF
     make -j$CORE_NUM
-    
+
     cp -rf lib/libcocos2d.a $PORTBUILD_PATH/lib/
     cp -rf lib/libext_*.a $PORTBUILD_PATH/lib/
     cp -rf engine/cocos/android/libcpp_android_spec.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/zlib/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/png/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/tiff/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/webp/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/freetype2/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/chipmunk/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    cp -rf ../external/bullet/prebuilt/android/arm64-v8a/*.a $PORTBUILD_PATH/lib/
-    
+    # cocos2d-x 3.17.2 builds none of these nine: each external/<lib> imports a
+    # static library out of prebuilt/android/$ABI. The set cocos2d-x publishes
+    # carries armeabi-v7a, arm64-v8a and x86 and nothing else, so any other ABI
+    # has to have them staged into that same layout before this runs -- which
+    # is what script/build_cocos_deps.sh does.
+    for lib in zlib png tiff webp freetype2 chipmunk bullet; do
+        cp -rf ../external/$lib/prebuilt/android/$ABI/*.a $PORTBUILD_PATH/lib/
+    done
+
     popd
 }

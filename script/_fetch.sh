@@ -1,7 +1,8 @@
 # prepare dirs
 if ! [ -d $CMAKELISTS_PATH/thirdparty/port ]; then mkdir -p $CMAKELISTS_PATH/thirdparty/port; fi
-if ! [ -d $CMAKELISTS_PATH/thirdparty/build/arch_androida32 ]; then mkdir -p $CMAKELISTS_PATH/thirdparty/build/arch_androida32; fi
-if ! [ -d $CMAKELISTS_PATH/thirdparty/build/arch_androida64 ]; then mkdir -p $CMAKELISTS_PATH/thirdparty/build/arch_androida64; fi
+for arch in androida32 androida64 androidx32 androidx64; do
+    if ! [ -d $CMAKELISTS_PATH/thirdparty/build/arch_$arch ]; then mkdir -p $CMAKELISTS_PATH/thirdparty/build/arch_$arch; fi
+done
 
 # fetch by wget
 function fetch_port() # urlbase, name, outpath
