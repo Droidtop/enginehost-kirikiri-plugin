@@ -15,8 +15,10 @@ run_configure()
 {
     "$@" && return 0
     echo "### configure failed: $* ###" >&2
-    echo "### config.log, last 120 lines ###" >&2
-    tail -n 120 config.log >&2
+    # The variable dump at the end of config.log is never the interesting
+    # part; the failed test is above it, so print the failures themselves.
+    echo "### config.log: the failed tests ###" >&2
+    grep -n -B4 -A12 'error:\|failed program was\|configure: error' config.log | tail -n 200 >&2
     return 1
 }
 
@@ -50,6 +52,15 @@ build_ogg()
 build_vorbis()
 {
     if ! [ -d $VORBIS_SRC/build_$PLATFORM ]; then mkdir -p $VORBIS_SRC/build_$PLATFORM ;fi
+
+    # libvorbis's configure writes its own CFLAGS per host, and for any
+    # *86-*-linux* host that includes GCC's -mno-ieee-fp. clang has never had
+    # that flag, so with NDK 25 every conftest after that line fails to compile
+    # and configure reports the symptom instead of the cause: "Ogg >= 1.0
+    # required !", with -lm and -lpthread also "not found". The flag only
+    # appears in that one branch, so taking it out changes nothing for an ARM
+    # target.
+    sed -i 's/-mno-ieee-fp//g' $VORBIS_SRC/configure
 
     pushd $VORBIS_SRC/build_$PLATFORM
     run_configure ../configure --host=$TRIPLE \
@@ -319,10 +330,23 @@ build_breakpad() # after linux-syscall
             ;;
     esac
 
+    # libc++'s <fstream> calls fseeko and ftello, which 32-bit bionic declares
+    # only from API 24; on a 64-bit ABI they are always present, which is why
+    # arm64 and x86_64 build this and x86 stops at "use of undeclared
+    # identifier 'fseeko'". The only sources that include <fstream> are
+    # src/processor, the minidump ANALYSIS half, which does not run on the
+    # device at all -- so the archive is compiled against API 24 on those ABIs.
+    # Nothing quiet about it: if anything in there were actually reached, the
+    # app's own link at API $API would fail on those same two symbols.
+    case $ABI in
+        armeabi*|x86) BREAKPAD_API=24 ;;
+        *)            BREAKPAD_API=$API ;;
+    esac
+
     pushd $BREAKPAD_SRC/build_$PLATFORM
     run_configure ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm \
-        CXX=$CLANGXX STRIP=llvm-strip \
+        CC=$TRIPLE$BREAKPAD_API-clang  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm \
+        CXX=$TRIPLE$BREAKPAD_API-clang++ STRIP=llvm-strip \
         --prefix=$PORTBUILD_PATH \
         --disable-tools
     make -j$CORE_NUM &&  make install-strip
