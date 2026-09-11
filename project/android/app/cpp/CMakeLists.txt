@@ -37,9 +37,10 @@ set(PORTBUILD_PATH ${KRKR2YURI_DIR}/thirdparty/build/${PORTBUILD_ARCH})
 # one, v3-deps-172 -- carries armeabi-v7a, arm64-v8a and x86 and no more.
 # Upstream's own builder agrees: cocos2d-x-3rd-party-libs-src branch v3,
 # build/android.ini, declares cfg_all_supported_arches=("armv7" "x86" "arm64"
-# "mips") and defines no x86_64 alias folder, host triple or API level. Those
-# nine have to be built from their own sources and staged into that layout
-# before an x86_64 tree can be built at all.
+# "mips") and defines no x86_64 alias folder, host triple or API level. So
+# script/build_cocos_deps.sh builds those archives from their own upstream
+# sources, at the versions that builder pins, and stages them into cocos2d-x's
+# prebuilt layout before the rest of the tree is built.
 if(NOT EXISTS ${PORTBUILD_PATH}/lib)
     message(FATAL_ERROR
         "No built dependency tree at ${PORTBUILD_PATH} for ANDROID_ABI=${ANDROID_ABI}. "

@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [androidx32]
+        platform: [androidx32, androidx64]
     steps:
       - uses: actions/checkout@v5
       - id: tree

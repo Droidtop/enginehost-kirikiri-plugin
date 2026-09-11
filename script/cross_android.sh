@@ -124,6 +124,7 @@ echo "## AR=$AR"
 # SKIP_PORTS="yes"
 source ./_fetch.sh
 source ./_android.sh
+source ./build_cocos_deps.sh
 # The runtime assets belong to the project build, not to the dependencies.
 if [ -z "$PORTS_ONLY" ]; then fetch_asset; fi
 if [ -z "$SKIP_PORTS" ]; then
@@ -141,11 +142,15 @@ if [ -z "$SKIP_PORTS" ]; then
         -exec chmod +x {} +
     # cocos2d-x 3.17.2 builds nine of its dependencies for nobody: it imports
     # them as static libraries out of external/<lib>/prebuilt/android/$ABI, and
-    # the set it publishes covers armeabi-v7a, arm64-v8a and x86 only. Say so
-    # here rather than letting build_cocos2dx fail on a missing wildcard.
+    # the set it publishes covers armeabi-v7a, arm64-v8a and x86 only. For any
+    # other ABI they are built from their own sources first and staged into
+    # that same layout, so build_cocos2dx finds what it expects to find.
     if ! [ -d $COCOS2DX_SRC/external/zlib/prebuilt/android/$ABI ]; then
-        echo "## cocos2d-x has no prebuilt dependency set for $ABI at $COCOS2DX_SRC/external/*/prebuilt/android/$ABI" >&2
-        exit 1
+        echo "## cocos2d-x publishes no prebuilt dependency set for $ABI; building it"
+        if ! build_cocos_deps; then
+            echo "## cocos2d-x dependency set for $ABI is incomplete; see the error above" >&2
+            exit 1
+        fi
     fi
     build_ports
 fi
