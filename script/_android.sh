@@ -235,10 +235,19 @@ build_lz4()
 {
     pushd $LZ4_SRC
     make clean
+    # MOREFLAGS is the knob lz4 offers for adding to its own CFLAGS, so this
+    # keeps its optimisation settings and adds position independence. Without
+    # it the static archive carries R_386_PC32 relocations against its global
+    # symbols and ld.lld will not put them in a shared object: the link of
+    # libkrkr2yuri.so for x86 stopped with a screen of "recompile with
+    # -fPIC", one line per LZ4_ entry point. The same code on aarch64 is
+    # position independent whether or not anyone asked for it, which is why
+    # the one ABI upstream publishes has never needed this.
     make lib -j$CORE_NUM \
         CC=$CLANG \
         CXX=$CLANGXX \
         AR=llvm-ar STRIP=llvm-strip \
+        MOREFLAGS=-fPIC \
         WINBASED=no
 
     if ! [ -d $PORTBUILD_PATH/include/lz4 ]; then mkdir -p $PORTBUILD_PATH/include/lz4 ;fi
