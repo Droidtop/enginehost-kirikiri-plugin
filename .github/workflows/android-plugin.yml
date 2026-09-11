@@ -43,7 +43,87 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Every ABI but aarch64 has to have its native dependency tree built here,
+  # because upstream Kirikiroid2Yuri publishes thirdparty_build.tar.gz for
+  # aarch64 and nothing else. That is eighteen static libraries and takes about
+  # an hour, so it is keyed on the content of the scripts and patches that
+  # define it: a push that does not touch them restores the tree instead of
+  # rebuilding it, and the plugin job stays the four minutes it is today.
+  thirdparty:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [androidx32]
+    steps:
+      - uses: actions/checkout@v5
+      - id: tree
+        uses: actions/cache@v4
+        with:
+          path: deps-out
+          key: kk-thirdparty-v1-${{ matrix.platform }}-${{ hashFiles('script/**', 'thirdparty/patch/**') }}
+      - name: Make room for the source trees
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
+          df -h /
+      - name: Install the NDK this plugin is built with
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zstd autoconf automake libtool pkg-config
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;25.2.9519653" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> "$GITHUB_ENV"
+      - name: Fetch the dependency sources upstream publishes
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 5 --output thirdparty_port.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_port.tar.gz
+          tar xzf thirdparty_port.tar.gz
+          rm -f thirdparty_port.tar.gz
+      - name: Build the dependency tree for ${{ matrix.platform }}
+        if: steps.tree.outputs.cache-hit != 'true'
+        working-directory: script
+        run: PORTS_ONLY=yes bash ./cross_android.sh ${{ matrix.platform }}
+      # The scripts do not stop on a failed library -- upstream's do not either
+      # -- so rather than trusting a green log, compare what was produced with
+      # what upstream's own aarch64 tree contains. Every archive there must be
+      # here, bar libtegra_hal.a, which is opencv's ARM HAL and exists for no
+      # other architecture. A library that quietly failed to build shows up as a
+      # name in this list.
+      - name: Check the tree against upstream's aarch64 one
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 5 --output thirdparty_build.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
+          mkdir -p reference && tar xzf thirdparty_build.tar.gz -C reference
+          ls reference/thirdparty/build/arch_androida64/lib/*.a \
+            | xargs -n1 basename | grep -v '^libtegra_hal\.a$' | sort > expected.txt
+          ls thirdparty/build/arch_${{ matrix.platform }}/lib/*.a \
+            | xargs -n1 basename | sort > got.txt
+          missing="$(comm -23 expected.txt got.txt)"
+          if [ -n "$missing" ]; then
+            echo "::error::missing from arch_${{ matrix.platform }}: $missing"
+            exit 1
+          fi
+          comm -13 expected.txt got.txt | sed 's/^/extra (fine): /'
+          rm -rf reference thirdparty_build.tar.gz
+      - name: Pack the tree
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p deps-out
+          tar --zstd -cf deps-out/thirdparty_build_${{ matrix.platform }}.tar.zst \
+            thirdparty/build/arch_${{ matrix.platform }}
+          ls -la deps-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thirdparty-${{ matrix.platform }}
+          path: deps-out/*.tar.zst
+          if-no-files-found: error
+
   android:
+    needs: thirdparty
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -60,6 +140,21 @@ jobs:
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
           tar xzf thirdparty_port.tar.gz
           tar xzf thirdparty_build.tar.gz
+      # Everything but aarch64 comes from the thirdparty job above, one tree per
+      # ABI, unpacked into the same thirdparty/build/arch_<platform> layout.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: thirdparty-*
+          path: thirdparty-trees
+          merge-multiple: true
+      - name: Restore the dependency trees built for the other ABIs
+        run: |
+          for tree in thirdparty-trees/*.tar.zst; do
+            echo "## $tree"
+            tar --zstd -xf "$tree"
+          done
+          rm -rf thirdparty-trees
+          ls thirdparty/build
       - name: Restore runtime assets
         run: |
           curl --fail --location --retry 5 --output upstream.apk \
@@ -105,14 +200,18 @@ jobs:
           # segment "cxx", not "cmake"), so the previous find matched nothing
           # and the artifact was always empty. Search both the build output and
           # the .cxx staging directory, and keep only libraries that still have
-          # a symbol table -- the copies under intermediates are stripped.
+          # a symbol table -- the copies under intermediates are stripped. The
+          # ABI is part of the path, so a bundle with several of them keeps an
+          # unstripped library for each rather than the console's alone.
           readelf="$(find "${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk}"             -name llvm-readelf -path '*linux-x86_64*' 2>/dev/null | head -1)"
           test -n "$readelf"
           while IFS= read -r so; do
             if "$readelf" -S "$so" | grep -q '\.symtab'; then
-              cp "$so" build/symbols/
+              abi="$(basename "$(dirname "$so")")"
+              mkdir -p "build/symbols/$abi"
+              cp "$so" "build/symbols/$abi/"
             fi
-          done < <(find build_android project/android/app/.cxx -name '*.so' -path '*arm64-v8a*' 2>/dev/null)
+          done < <(find build_android project/android/app/.cxx -name '*.so' 2>/dev/null)
           ls -la build/symbols
       - uses: actions/upload-artifact@v4
         with:
@@ -188,6 +287,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: enginehost-kirikiri2-debug-apk
           path: release
       - name: Publish the signed bundle on the chosen channel
         env:
@@ -257,6 +357,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          pattern: enginehost-kirikiri2-debug-apk
           path: release
       - name: Publish the signed bundle on the unstable channel
         env:
