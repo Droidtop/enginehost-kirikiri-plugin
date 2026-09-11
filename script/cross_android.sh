@@ -128,6 +128,17 @@ source ./_android.sh
 if [ -z "$PORTS_ONLY" ]; then fetch_asset; fi
 if [ -z "$SKIP_PORTS" ]; then
     fetch_ports
+    # Upstream's thirdparty_port.tar.gz stores its files without the execute
+    # bit, and tar restores what was stored, so every ./configure in it is
+    # unrunnable ("Permission denied") until this. Upstream never hits it
+    # because its own builds are done in a tree it checked out rather than
+    # unpacked.
+    find $CMAKELISTS_PATH/thirdparty/port -type f \( \
+        -name configure -o -name config.sub -o -name config.guess -o \
+        -name install-sh -o -name ltmain.sh -o -name missing -o \
+        -name depcomp -o -name compile -o -name test-driver -o \
+        -name mkinstalldirs -o -name 'configure.gnu' -o -name '*.sh' \) \
+        -exec chmod +x {} +
     # cocos2d-x 3.17.2 builds nine of its dependencies for nobody: it imports
     # them as static libraries out of external/<lib>/prebuilt/android/$ABI, and
     # the set it publishes covers armeabi-v7a, arm64-v8a and x86 only. Say so

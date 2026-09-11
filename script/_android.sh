@@ -153,10 +153,14 @@ build_opencv()
         $HAL_ARGS
     make -j$CORE_NUM &&  make install
 
-    cp -rf  $PORTBUILD_PATH/sdk/native/3rdparty/libs/$ABI/*.a $PORTBUILD_PATH/lib || true
-    if [ "$IS_ARM" = yes ]; then
-        cp -rf  $PORTBUILD_PATH/sdk/native/staticlibs/$ABI/libtegra_hal.a $PORTBUILD_PATH/lib
-    fi
+    # opencv's install prefix is an Android SDK layout, not a lib directory:
+    # its own modules land in sdk/native/staticlibs/$ABI and the third-party
+    # archives it built for itself in sdk/native/3rdparty/libs/$ABI. Everything
+    # the engine links out of opencv comes from those two -- libopencv_core,
+    # libopencv_imgproc, and on an ARM target libtegra_hal, which is simply one
+    # of the staticlibs rather than a case of its own.
+    cp -rf  $PORTBUILD_PATH/sdk/native/3rdparty/libs/$ABI/*.a $PORTBUILD_PATH/lib
+    cp -rf  $PORTBUILD_PATH/sdk/native/staticlibs/$ABI/*.a $PORTBUILD_PATH/lib
 
     popd
 }

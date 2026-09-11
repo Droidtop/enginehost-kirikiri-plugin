@@ -89,9 +89,12 @@ jobs:
       # The scripts do not stop on a failed library -- upstream's do not either
       # -- so rather than trusting a green log, compare what was produced with
       # what upstream's own aarch64 tree contains. Every archive there must be
-      # here, bar libtegra_hal.a, which is opencv's ARM HAL and exists for no
-      # other architecture. A library that quietly failed to build shows up as a
-      # name in this list.
+      # here, bar three that are absent on purpose: libtegra_hal.a is opencv's
+      # ARM HAL and exists for no other architecture, and libext_tolua.a and
+      # libext_luasocket.a belong to cocos2d-x's Lua bindings, which
+      # build_cocos2dx turns off with BUILD_LUA_LIBS=OFF and this engine does
+      # not link. A library that quietly failed to build shows up as a name in
+      # this list.
       - name: Check the tree against upstream's aarch64 one
         if: steps.tree.outputs.cache-hit != 'true'
         run: |
@@ -99,7 +102,8 @@ jobs:
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
           mkdir -p reference && tar xzf thirdparty_build.tar.gz -C reference
           ls reference/thirdparty/build/arch_androida64/lib/*.a \
-            | xargs -n1 basename | grep -v '^libtegra_hal\.a$' | sort > expected.txt
+            | xargs -n1 basename \
+            | grep -vE '^(libtegra_hal|libext_tolua|libext_luasocket)\.a$' | sort > expected.txt
           ls thirdparty/build/arch_${{ matrix.platform }}/lib/*.a \
             | xargs -n1 basename | sort > got.txt
           missing="$(comm -23 expected.txt got.txt)"
