@@ -124,8 +124,13 @@ cocosdeps_png()
     local zsrc=$COCOSDEPS_SRC/zlib-1.2.8
     # zconf.h is generated into the zlib build directory, so both go on the
     # include path.
+    # SKIP_INSTALL_ALL: libpng creates a libpng.a symlink beside the archive
+    # it installs and reads the target LOCATION property to find it, which
+    # CMake has refused since 3.0 (CMP0026). Nothing here installs -- the
+    # archive is copied straight into cocos2d-x -- so the whole install block
+    # goes, rather than reviving a policy for one symlink we do not want.
     cocosdeps_cmake libpng-1.6.16 \
-        -DPNG_SHARED=OFF -DPNG_STATIC=ON -DPNG_TESTS=OFF \
+        -DPNG_SHARED=OFF -DPNG_STATIC=ON -DPNG_TESTS=OFF -DSKIP_INSTALL_ALL=ON \
         -DZLIB_INCLUDE_DIR="$zsrc;$zsrc/build_$PLATFORM" \
         -DZLIB_LIBRARY=$zsrc/build_$PLATFORM/libz.a || return 1
     # The static target is png16_static and its archive libpng16.a; cocos2d-x
@@ -148,6 +153,15 @@ cocosdeps_freetype()
 cocosdeps_chipmunk()
 {
     cocosdeps_fetch_git https://github.com/slembcke/Chipmunk2D Chipmunk-7.0.1 Chipmunk2D || return 1
+    # cpHastySpace.c includes sys/sysctl.h at the top of the file and uses it
+    # in one place, inside an ifdef __APPLE__, to ask sysctlbyname how many
+    # cores there are. bionic dropped that header years ago, so on any current
+    # NDK the file stops on the include alone. Take the include out: nothing
+    # outside that Apple branch refers to it, and this is never built for
+    # Apple. The prebuilt sets cocos2d-x ships predate the removal, which is
+    # why nobody met this before.
+    sed -i "s|^#include <sys/sysctl.h>|// removed: bionic has no sys/sysctl.h, and only the __APPLE__ branch below used it|" \
+        $COCOSDEPS_SRC/Chipmunk2D/src/cpHastySpace.c
     cocosdeps_cmake Chipmunk2D \
         -DBUILD_DEMOS=OFF -DINSTALL_DEMOS=OFF \
         -DBUILD_SHARED=OFF -DBUILD_STATIC=ON -DINSTALL_STATIC=OFF || return 1
