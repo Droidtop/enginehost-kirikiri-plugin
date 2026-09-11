@@ -9,14 +9,25 @@
 CLANG=$TRIPLE$API-clang
 CLANGXX=$TRIPLE$API-clang++
 
+# A cross configure that fails says "see config.log" and CI throws the tree
+# away, so the reason is gone. Run every one of them through this instead.
+run_configure()
+{
+    "$@" && return 0
+    echo "### configure failed: $* ###" >&2
+    echo "### config.log, last 120 lines ###" >&2
+    tail -n 120 config.log >&2
+    return 1
+}
+
 # audio
 build_opus()
 {
     if ! [ -d $OPUS_SRC/build_$PLATFORM ]; then mkdir -p $OPUS_SRC/build_$PLATFORM ;fi
 
     pushd $OPUS_SRC/build_$PLATFORM
-    ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar \
+    run_configure ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm STRIP=llvm-strip \
         CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic
     make -j$CORE_NUM &&  make install
@@ -28,8 +39,8 @@ build_ogg()
     if ! [ -d $OGG_SRC/build_$PLATFORM ]; then mkdir -p $OGG_SRC/build_$PLATFORM ;fi
 
     pushd $OGG_SRC/build_$PLATFORM
-    ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar \
+    run_configure ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm STRIP=llvm-strip \
         CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic
     make -j$CORE_NUM &&  make install
@@ -41,8 +52,8 @@ build_vorbis()
     if ! [ -d $VORBIS_SRC/build_$PLATFORM ]; then mkdir -p $VORBIS_SRC/build_$PLATFORM ;fi
 
     pushd $VORBIS_SRC/build_$PLATFORM
-    ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar \
+    run_configure ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm STRIP=llvm-strip \
         CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic \
         --with-ogg=$PORTBUILD_PATH
@@ -55,8 +66,8 @@ build_opusfile() # after ogg, opus, vorbits
     if ! [ -d $OPUSFILE_SRC/build_$PLATFORM ]; then mkdir -p $OPUSFILE_SRC/build_$PLATFORM ;fi
 
     pushd $OPUSFILE_SRC/build_$PLATFORM
-    ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar \
+    run_configure ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm STRIP=llvm-strip \
         CXX=$CLANGXX \
         --prefix=$PORTBUILD_PATH --with-pic \
         DEPS_CFLAGS="-I$PORTBUILD_PATH/include -I$PORTBUILD_PATH/include/opus" \
@@ -176,7 +187,7 @@ build_ffmpeg()
         git apply $CMAKELISTS_PATH/thirdparty/patch/ffmpeg/android_ffmpeg.diff
     fi
     cd build_$PLATFORM
-    ../configure --enable-cross-compile --cross-prefix=$TRIPLE- \
+    run_configure ../configure --enable-cross-compile --cross-prefix=$TRIPLE- \
         --cc=$CLANG  --ar=llvm-ar \
         --cxx=$CLANGXX --ranlib=llvm-ranlib \
         --strip=llvm-strip --prefix=$PORTBUILD_PATH \
@@ -293,9 +304,24 @@ build_breakpad() # after linux-syscall
     if ! [ -d $BREAKPAD_SRC/build_$PLATFORM ]; then mkdir -p $BREAKPAD_SRC/build_$PLATFORM ;fi
     cp -rf $SYSCALL_SRC/lss $BREAKPAD_SRC/src/third_party/
 
+    # src/common/android/testing/include exists to fill gaps in old 32-bit
+    # bionic: its wchar.h defines a static wcscasecmp behind
+    # "#if !defined(__aarch64__) && !defined(__x86_64__)", and NDK 25's own
+    # wchar.h declares that function, so a 32-bit build stops at "static
+    # declaration of 'wcscasecmp' follows non-static declaration" while arm64
+    # and x86_64 never compile the shim at all. It is a testing shim and
+    # --disable-tools builds no tests, so take the directory off the include
+    # path where it does harm.
+    case $ABI in
+        armeabi*|x86)
+            sed -i 's#-I$(top_srcdir)/src/common/android/testing/include##' \
+                $BREAKPAD_SRC/Makefile.in
+            ;;
+    esac
+
     pushd $BREAKPAD_SRC/build_$PLATFORM
-    ../configure --host=$TRIPLE \
-        CC=$CLANG  AR=llvm-ar \
+    run_configure ../configure --host=$TRIPLE \
+        CC=$CLANG  AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm \
         CXX=$CLANGXX STRIP=llvm-strip \
         --prefix=$PORTBUILD_PATH \
         --disable-tools
