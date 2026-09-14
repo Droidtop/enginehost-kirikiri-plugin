@@ -395,6 +395,7 @@ build_cocos2dx()
     cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_CCFileUtils-android.cpp $COCOS2DX_SRC/cocos/platform/android/CCFileUtils-android.cpp
     cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_Java_org_cocos2dx_lib_Cocos2dxHelper.h $COCOS2DX_SRC/cocos/platform/android/jni/Java_org_cocos2dx_lib_Cocos2dxHelper.h
     cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_Java_org_cocos2dx_lib_Cocos2dxHelper.cpp $COCOS2DX_SRC/cocos/platform/android/jni/Java_org_cocos2dx_lib_Cocos2dxHelper.cpp
+    cp $CMAKELISTS_PATH/thirdparty/patch/cocos2d-x/android_opensslconf.h $COCOS2DX_SRC/external/openssl/include/android/openssl/opensslconf.h
 
     pushd $COCOS2DX_SRC/build_$PLATFORM
     cmake .. -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=MinSizeRel \
