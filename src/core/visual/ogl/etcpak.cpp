@@ -7,7 +7,10 @@
 #include <mutex>
 #include <future>
 #include <cmath>
-#ifdef __SSE4_1__
+// This vendored implementation omits the SIMD lookup tables and AVX2 encoders.
+// Use its complete scalar path even when the target advertises SSE4.1. Do not
+// enable this private feature gate until those implementations are supplied.
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 #include <smmintrin.h>
 #endif
 #include "ThreadIntf.h"
@@ -730,7 +733,7 @@ typedef std::array<uint16, 4> v4i;
 
 void Average( const uint8* data, v4i* a )
 {
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
     __m128i d0 = _mm_loadu_si128(((__m128i*)data) + 0);
     __m128i d1 = _mm_loadu_si128(((__m128i*)data) + 1);
     __m128i d2 = _mm_loadu_si128(((__m128i*)data) + 2);
@@ -801,7 +804,7 @@ void Average( const uint8* data, v4i* a )
 
 void CalcErrorBlock( const uint8* data, uint err[4][4] )
 {
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
     __m128i d0 = _mm_loadu_si128(((__m128i*)data) + 0);
     __m128i d1 = _mm_loadu_si128(((__m128i*)data) + 1);
     __m128i d2 = _mm_loadu_si128(((__m128i*)data) + 2);
@@ -895,7 +898,7 @@ uint CalcError( const uint block[4], const v4i& average )
 
 void ProcessAverages( v4i* a )
 {
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
     for( int i=0; i<2; i++ )
     {
         __m128i d = _mm_loadu_si128((__m128i*)a[i*2].data());
@@ -986,7 +989,7 @@ void EncodeAverages( uint64& _d, const v4i* a, size_t idx )
 
 uint64 CheckSolid( const uint8* src )
 {
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
     __m128i d0 = _mm_loadu_si128(((__m128i*)src) + 0);
     __m128i d1 = _mm_loadu_si128(((__m128i*)src) + 1);
     __m128i d2 = _mm_loadu_si128(((__m128i*)src) + 2);
@@ -1056,7 +1059,7 @@ void FindBestFit( uint64 terr[2][8], uint16 tsel[16][8], v4i a[8], const uint32*
         int dg = a[bid][1] - g;
         int db = a[bid][2] - b;
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
         // Reference implementation
 
         __m128i pix = _mm_set1_epi32(dr * 77 + dg * 151 + db * 28);
@@ -1135,7 +1138,7 @@ void FindBestFit( uint64 terr[2][8], uint16 tsel[16][8], v4i a[8], const uint32*
     }
 }
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 // Non-reference implementation, but faster. Produces same results as the AVX2 version
 void FindBestFit( uint32 terr[2][8], uint16 tsel[16][8], v4i a[8], const uint32* id, const uint8* data )
 {
@@ -1379,7 +1382,7 @@ uint64 ProcessRGB( const uint8* src )
     size_t idx = GetLeastError( err, 4 );
     EncodeAverages( d, a, idx );
 
-#if defined __SSE4_1__ && !defined REFERENCE_IMPLEMENTATION
+#if defined ETCPAK_COMPLETE_SIMD_IMPLEMENTATION && !defined REFERENCE_IMPLEMENTATION
     uint32 terr[2][8] = {};
 #else
     uint64 terr[2][8] = {};
@@ -1403,7 +1406,7 @@ uint64 ProcessRGB_ETC2( const uint8* src )
     size_t idx = GetLeastError( err, 4 );
     EncodeAverages( d, a, idx );
 
-#if defined __SSE4_1__ && !defined REFERENCE_IMPLEMENTATION
+#if defined ETCPAK_COMPLETE_SIMD_IMPLEMENTATION && !defined REFERENCE_IMPLEMENTATION
     uint32 terr[2][8] = {};
 #else
     uint64 terr[2][8] = {};
@@ -1662,7 +1665,7 @@ static uint64 _f_rgb(uint8* ptr)
 	return ProcessRGB(ptr);
 }
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 static uint64 _f_rgb_avx2(uint8* ptr)
 {
 	return ProcessRGB_AVX2(ptr);
@@ -1675,7 +1678,7 @@ static uint64 _f_rgb_dither(uint8* ptr)
 	return ProcessRGB(ptr);
 }
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 static uint64 _f_rgb_dither_avx2(uint8* ptr)
 {
 	Dither(ptr);
@@ -1688,7 +1691,7 @@ static uint64 _f_rgb_etc2(uint8* ptr)
 	return ProcessRGB_ETC2(ptr);
 }
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 static uint64 _f_rgb_etc2_avx2(uint8* ptr)
 {
 	return ProcessRGB_ETC2_AVX2(ptr);
@@ -1701,7 +1704,7 @@ static uint64 _f_rgb_etc2_dither(uint8* ptr)
 	return ProcessRGB_ETC2(ptr);
 }
 
-#ifdef __SSE4_1__
+#ifdef ETCPAK_COMPLETE_SIMD_IMPLEMENTATION
 static uint64 _f_rgb_etc2_dither_avx2(uint8* ptr)
 {
 	Dither(ptr);
