@@ -7,6 +7,9 @@
 #include <mutex>
 #include <future>
 #include <cmath>
+#ifdef __SSE4_1__
+#include <smmintrin.h>
+#endif
 #include "ThreadIntf.h"
 #include "tvpgl.h"
 
