@@ -71,6 +71,7 @@ cocosdeps_cmake() # source directory, then cache entries
         -DCMAKE_TOOLCHAIN_FILE=$NDK_HOME/build/cmake/android.toolchain.cmake \
         -DANDROID_PLATFORM=$API -DANDROID_ABI=$ABI \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DBUILD_SHARED_LIBS=OFF \
         "$@" || return 1
     make -C $build -j$CORE_NUM || return 1
@@ -94,7 +95,7 @@ cocosdeps_autotools() # source directory, then configure arguments
     ../configure --host=$TRIPLE \
         CC=$TRIPLE$API-clang CXX=$TRIPLE$API-clang++ \
         AR=llvm-ar RANLIB=llvm-ranlib NM=llvm-nm STRIP=llvm-strip \
-        --enable-static --disable-shared "$@" \
+        --enable-static --disable-shared --with-pic "$@" \
         && make -j$CORE_NUM
     local rc=$?
     popd
