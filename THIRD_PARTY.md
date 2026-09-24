@@ -25,10 +25,23 @@ well-known published licences for each named upstream project and are cited
 here rather than copied, since no upstream licence text for them exists in
 the repository to preserve verbatim.
 
+## Declared bundle licence
+
+`enginehost/bundle-metadata.json` declares `BSD-3-Clause`: `LICENSE` has
+exactly BSD-3-Clause's three conditions (keep the notice with source, carry it
+in documentation with binaries, no endorsement without permission), and that
+is the most permissive licence the upstream code allows. It used to declare
+`GPL-2.0-or-later`, which nothing upstream requires. The bundled components
+above keep their own licences; none of them is GPL in the x86_64 and x86
+builds (see FFmpeg below).
+
 ## Obligations (flagged, not resolved here)
 
 FFmpeg is GPL when built with `--enable-gpl` (for components like x264) and
 LGPL otherwise; which applies depends on `thirdparty/ffmpeg`'s actual build
-configuration, which this pass did not audit. If the build enables GPL
+configuration. `script/_android.sh`, which builds the x86_64 and x86 trees,
+configures it without `--enable-gpl`, `--enable-version3` or
+`--enable-nonfree`, so those builds are LGPL-2.1-or-later; the arm64-v8a tree
+is upstream's published build and was not re-audited. If the build enables GPL
 components, source-offer obligations attach to the whole binary. This is
 worth a follow-up pass against the actual FFmpeg build flags used in CI.
