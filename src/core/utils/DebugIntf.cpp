@@ -300,8 +300,11 @@ void tTVPLogStreamHolder::Open(const tjs_nchar *mode)
 			time_t timer;
 			timer = time(&timer);
 
+			// localtime returns null for a time it cannot represent, and
+			// TJS_strftime dereferences what it is given.
 			struct_tm = localtime(&timer);
-			TJS_strftime(timebuf, 79, TJS_W("%#c"), struct_tm);
+			if(!struct_tm || !TJS_strftime(timebuf, 79, TJS_W("%#c"), struct_tm))
+				timebuf[0] = 0;
 
 			Log(ttstr(TJS_W("Logging to ")) + ttstr(filename) + TJS_W(" started on ") + timebuf);
 
@@ -391,8 +394,11 @@ void TVPAddLog(const ttstr &line, bool appendtoimportant)
 
 	if(prevlogtime != timer)
 	{
+		// As in tTVPLogStreamHolder::Open: no time stamp rather than a null
+		// tm handed to TJS_strftime, or a half-written one left behind.
 		struct_tm = localtime(&timer);
-		TJS_strftime(timebuf, 39, TJS_W("%H:%M:%S"), struct_tm);
+		if(!struct_tm || !TJS_strftime(timebuf, 39, TJS_W("%H:%M:%S"), struct_tm))
+			timebuf[0] = 0;
 		prevlogtime = timer;
 		prevtimebuf = timebuf;
 	}
