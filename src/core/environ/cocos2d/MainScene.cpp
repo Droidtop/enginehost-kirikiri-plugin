@@ -1873,7 +1873,7 @@ void TVPMainScene::doStartup(float dt, std::string path) {
 	}
 
 	if (pGlobalCfgMgr->GetValue<bool>("showfps", false)) {
-		_fpsLabel = cocos2d::Label::createWithTTF("", "DroidSansFallback.ttf", 16);
+		_fpsLabel = TVPCreateUILabel(16);
 		_fpsLabel->setAnchorPoint(Vec2(0, 1));
 		_fpsLabel->setPosition(Vec2(0, GameNode->getContentSize().height));
 		_fpsLabel->setColor(Color3B::WHITE);
@@ -2817,6 +2817,20 @@ iWindowLayer *TVPCreateAndAddWindow(tTJSNI_Window *w) {
 
 void TVPRemoveWindowLayer(iWindowLayer *lay) {
 	static_cast<TVPWindowLayer*>(lay)->removeFromParent();
+}
+
+cocos2d::Label *TVPCreateUILabel(float fontSize, const cocos2d::Size &dimensions) {
+	// The UI face is DroidSansFallback.ttf from the bundle's assets. When the
+	// assets cannot be read (seen on Android 9, where the host's resources do
+	// not reach this activity's AssetManager) createWithTTF returns null, and
+	// every caller used to dereference it: the start-up console did so on
+	// the first log line. The platform's own font draws the same text.
+	cocos2d::Label *label = cocos2d::Label::createWithTTF("", "DroidSansFallback.ttf", fontSize, dimensions);
+	if (!label) {
+		cocos2d::log("TVPCreateUILabel: DroidSansFallback.ttf could not be loaded; using the system font");
+		label = cocos2d::Label::createWithSystemFont("", "", fontSize, dimensions);
+	}
+	return label;
 }
 
 void TVPConsoleLog(const ttstr &l, bool important) {

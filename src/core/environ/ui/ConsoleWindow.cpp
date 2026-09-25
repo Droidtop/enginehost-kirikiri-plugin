@@ -3,8 +3,10 @@
 
 using namespace cocos2d;
 
-TVPConsoleWindow::TVPConsoleWindow() {
-
+TVPConsoleWindow::TVPConsoleWindow()
+	: _fontSize(0)
+	, _maxQueueSize(0)
+{
 }
 
 TVPConsoleWindow* TVPConsoleWindow::create(int fontSize, cocos2d::Node *parent) {
@@ -43,7 +45,7 @@ void TVPConsoleWindow::visit(Renderer *renderer, const Mat4& parentTransform, ui
 			if (_unusedLabels.empty()) {
 				Size dim(getContentSize());
 				dim.height = 0;
-				label = cocos2d::Label::createWithTTF("", "DroidSansFallback.ttf", _fontSize, dim);
+				label = TVPCreateUILabel(_fontSize, dim);
 				label->setAnchorPoint(Vec2::ZERO);
 				addChild(label);
 			} else {

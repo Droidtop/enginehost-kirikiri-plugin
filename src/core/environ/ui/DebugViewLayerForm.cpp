@@ -27,10 +27,10 @@ public:
 		_sprite = Sprite::create();
 		_sprite->setAnchorPoint(Vec2::ZERO);
 		addChild(_sprite);
-		_name = Label::createWithTTF("", "DroidSansFallback.ttf", 16);
+		_name = TVPCreateUILabel(16);
 		_name->setAnchorPoint(Vec2::ZERO);
 		addChild(_name);
-		_memsize = Label::createWithTTF("", "DroidSansFallback.ttf", 16);
+		_memsize = TVPCreateUILabel(16);
 		_memsize->setAnchorPoint(Vec2(1, 0));
 		addChild(_memsize);
 		return true;
@@ -141,7 +141,7 @@ bool DebugViewLayerForm::init() {
 	addChild(_tableView);
 	setOnExitCallback(std::bind(&DebugViewLayerForm::onExitCallback, this));
 
-	_totalSize = Label::createWithTTF("", "DroidSansFallback.ttf", 16);
+	_totalSize = TVPCreateUILabel(16);
 	_totalSize->setAnchorPoint(Vec2(1, 1));
 
 	iTVPLayerManager *manager = static_cast<tHackTVPDrawDevice*>(TVPMainWindow->GetDrawDevice())->getPrimaryLayerManager();

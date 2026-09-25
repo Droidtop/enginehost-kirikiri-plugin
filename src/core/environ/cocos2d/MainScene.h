@@ -6,7 +6,12 @@
 
 namespace cocos2d {
 	class Controller;
+	class Label;
 }
+
+// A label for the engine's own UI (start-up console, fps counter, layer
+// debug view). Never null; see the definition.
+cocos2d::Label *TVPCreateUILabel(float fontSize, const cocos2d::Size &dimensions = cocos2d::Size::ZERO);
 
 class TVPWindowLayer;
 class TVPGameMainMenu;
