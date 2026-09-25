@@ -66,6 +66,9 @@ void LocaleConfigManager::Initialize(const std::string &sysLang) {
 			}
 		}
 	}
+	// The counterpart of GetFilePath's "not found" line, so a log shows
+	// which of the two happened.
+	cocos2d::log("LocaleConfigManager: loaded %s (%d strings)", filePath.c_str(), (int)AllConfig.size());
 }
 
 bool LocaleConfigManager::initText(cocos2d::ui::Text *ctrl) {
