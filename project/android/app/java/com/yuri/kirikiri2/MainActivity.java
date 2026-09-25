@@ -1,7 +1,9 @@
 package com.yuri.kirikiri2;
 
 import android.graphics.Color;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -218,9 +220,19 @@ public class MainActivity extends KR2Activity {
 	 * pad is the whole input, that is the one thing that must always be on
 	 * screen. So an idle cursor fades instead of leaving, and only a real
 	 * finger (which is a pointer of its own) puts it away.
+	 *
+	 * And the fade stops at a level that still reads. dq-krkr-02's title
+	 * screenshot has the ring at 45 % over Noble Works' white-and-pale art,
+	 * and a person who pressed A there saw nothing happen and nothing to say
+	 * where the press had gone. So the ring stays at full strength for ten
+	 * seconds after the last pad input -- the whole of "the pad is in use" --
+	 * and then settles at three quarters, which the two-tone ring below keeps
+	 * legible on light and dark art alike.
 	 */
-	private static final long CURSOR_DIM_MS = 4000;
-	private static final float CURSOR_IDLE_ALPHA = 0.45f;
+	private static final long CURSOR_DIM_MS = 10000;
+	private static final float CURSOR_IDLE_ALPHA = 0.75f;
+	/** The ring's size; placement keeps the whole of it on screen. */
+	private static final int RING_DP = 28;
 	/** Arrow-key repeat from the right stick: one key, a pause, then a stream. */
 	private static final long SCROLL_FIRST_MS = 350;
 	private static final long SCROLL_REPEAT_MS = 110;
@@ -637,6 +649,33 @@ public class MainActivity extends KR2Activity {
 		buildOverlay();
 	}
 
+	/**
+	 * The pointer ring: a dark ring with a white one inside it, and a dot on
+	 * the hotspot. One dark stroke (what this used to be) vanishes on dark
+	 * art and a pale fill vanishes on light art; two strokes of opposite tone
+	 * side by side keep an edge against anything behind them, and the dot
+	 * says exactly where a click will land.
+	 */
+	private Drawable ringDrawable() {
+		GradientDrawable outer = new GradientDrawable();
+		outer.setShape(GradientDrawable.OVAL);
+		outer.setColor(Color.argb(60, 255, 255, 255));
+		outer.setStroke(dp(3), Color.argb(235, 0, 0, 0));
+		GradientDrawable inner = new GradientDrawable();
+		inner.setShape(GradientDrawable.OVAL);
+		inner.setColor(Color.TRANSPARENT);
+		inner.setStroke(dp(2), Color.WHITE);
+		GradientDrawable dot = new GradientDrawable();
+		dot.setShape(GradientDrawable.OVAL);
+		dot.setColor(Color.argb(235, 0, 0, 0));
+		dot.setStroke(dp(1), Color.WHITE);
+		LayerDrawable ring = new LayerDrawable(new Drawable[] { outer, inner, dot });
+		ring.setLayerInset(1, dp(3), dp(3), dp(3), dp(3));
+		int dotInset = dp(RING_DP / 2 - 3);
+		ring.setLayerInset(2, dotInset, dotInset, dotInset, dotInset);
+		return ring;
+	}
+
 	/** The cursor and the mapping legend, drawn over the game. */
 	private void buildOverlay() {
 		overlay = new FrameLayout(this);
@@ -649,13 +688,9 @@ public class MainActivity extends KR2Activity {
 		overlay.setElevation(dp(8));
 
 		cursorView = new View(this);
-		GradientDrawable ring = new GradientDrawable();
-		ring.setShape(GradientDrawable.OVAL);
-		ring.setColor(Color.argb(90, 255, 255, 255));
-		ring.setStroke(dp(2), Color.argb(230, 20, 20, 20));
-		cursorView.setBackground(ring);
+		cursorView.setBackground(ringDrawable());
 		cursorView.setVisibility(View.GONE);
-		overlay.addView(cursorView, new FrameLayout.LayoutParams(dp(22), dp(22)));
+		overlay.addView(cursorView, new FrameLayout.LayoutParams(dp(RING_DP), dp(RING_DP)));
 
 		legendView = new TextView(this);
 		GradientDrawable panel = new GradientDrawable();
@@ -1054,8 +1089,8 @@ public class MainActivity extends KR2Activity {
 			// over the letterbox, so a pointer that had run into the corner
 			// was invisible as well as immovable and there was nothing on
 			// screen to say where it had gone.
-			int ringW = cursorView.getWidth() > 0 ? cursorView.getWidth() : dp(22);
-			int ringH = cursorView.getHeight() > 0 ? cursorView.getHeight() : dp(22);
+			int ringW = cursorView.getWidth() > 0 ? cursorView.getWidth() : dp(RING_DP);
+			int ringH = cursorView.getHeight() > 0 ? cursorView.getHeight() : dp(RING_DP);
 			int mostX = Math.max(0, root.getWidth() - ringW);
 			int mostY = Math.max(0, root.getHeight() - ringH);
 			int placeX = (int) Math.max(0f, Math.min(mostX, cursorX - ringW / 2f));
