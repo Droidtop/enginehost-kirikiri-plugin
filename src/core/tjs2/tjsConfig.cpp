@@ -1362,15 +1362,23 @@ static void pop_arg(union arg *arg, int type, va_list *ap)
 	}
 }
 
+// musl's FILE, cut down to what the ports in this file use: the scanning
+// functions read through p, and the printf family writes through p for as
+// long as left, the room still free in the caller's buffer, allows. What does
+// not fit is dropped but still counted, which is what vsnprintf returns.
 struct _tFILE
 {
     tjs_char *p;
+    size_t left;
 };
 
 static void out(_tFILE *f, const tjs_char *s, size_t l)
 {
-    memcpy(f->p, s, l * sizeof(*f->p));
-    f->p += l;
+    size_t k = l < f->left ? l : f->left;
+    if (!k) return;
+    memcpy(f->p, s, k * sizeof(*f->p));
+    f->p += k;
+    f->left -= k;
 }
 
 static void pad(_tFILE *f, tjs_char c, int w, int l, int fl)
@@ -1380,7 +1388,7 @@ static void pad(_tFILE *f, tjs_char c, int w, int l, int fl)
 	l = w - l;
     int n = l >sizeof pad / sizeof(pad[0])? sizeof pad / sizeof(pad[0]): l;
     while(n--) pad[n] = c;
-	for (; l >= sizeof pad; l -= sizeof pad)
+	for (; l >= (int)(sizeof pad / sizeof(pad[0])); l -= sizeof pad / sizeof(pad[0]))
 		out(f, pad, sizeof pad / sizeof(pad[0]));
 	out(f, pad, l);
 }
@@ -1915,7 +1923,6 @@ static int printf_core(_tFILE *f, const tjs_char *fmt, va_list *ap, union arg *n
         l = w;
     }
 
-    out(f, TJS_W(""), 1);
     if (f) return cnt;
     if (!l10n) return 0;
 
@@ -1929,15 +1936,32 @@ static int printf_core(_tFILE *f, const tjs_char *fmt, va_list *ap, union arg *n
 int _vsnprintf(tjs_char * s, size_t n, const tjs_char * fmt, va_list ap)
 {
     int r;
-    _tFILE f = {s };
-    
+    // Room for n-1 characters and the terminator.
+    _tFILE f = { s, n ? n - 1 : 0 };
     int nl_type[NL_ARGMAX+1] = {0};
     union arg nl_arg[NL_ARGMAX+1];
-    unsigned char internal_buf[80], *saved_buf = 0;
-    va_list *pap = (va_list *)&ap;
-    r = printf_core(&f, fmt, pap, nl_arg, nl_type);
+    va_list ap2;
 
-    /* Null-terminate, overwriting last char if dest buffer is full */
+    // printf_core takes a va_list*, and &ap is not one wherever va_list is
+    // an array type: on x86_64 a va_list parameter has already decayed to a
+    // pointer to its one element, so &ap points at that pointer and every
+    // va_arg read garbage (the SIGSEGV in TVPAddLog's first time stamp on
+    // the x86_64 rig). aarch64's va_list is a plain struct and x86's a plain
+    // pointer, which is why only x86_64 broke. musl's vfprintf makes the same
+    // copy for the same reason ("the copy allows passing va_list* even if
+    // va_list is an array").
+    va_copy(ap2, ap);
+    // First pass: collect positional (%1$d) arguments, as musl does, so the
+    // second pass never reads nl_arg uninitialised.
+    if (printf_core(0, fmt, &ap2, nl_arg, nl_type) < 0) {
+        va_end(ap2);
+        if (n) *s = 0;
+        return -1;
+    }
+    r = printf_core(&f, fmt, &ap2, nl_arg, nl_type);
+    va_end(ap2);
+
+    if (n) *f.p = 0;
     return r;
 }
 
@@ -2223,7 +2247,7 @@ const tjs_char *__strftime_fmt_1(tjs_char (*s)[100], size_t *l, int f, const tm 
         fmt = TJS_W("%m/%d/%y");
         goto recu_strftime;
     case 'e':
-        *l = snprintf(*s, sizeof *s, TJS_W("%2d"), tm->tm_mday);
+        *l = snprintf(*s, sizeof *s / sizeof **s, TJS_W("%2d"), tm->tm_mday);
         return *s;
     case 'F':
         fmt = TJS_W("%Y-%m-%d");
@@ -2307,7 +2331,7 @@ const tjs_char *__strftime_fmt_1(tjs_char (*s)[100], size_t *l, int f, const tm 
     case 'Y':
         val = tm->tm_year + 1900;
         if (val >= 10000) {
-            *l = snprintf(*s, sizeof *s, TJS_W("+%lld"), val);
+            *l = snprintf(*s, sizeof *s / sizeof **s, TJS_W("+%lld"), val);
             return *s;
         }
         width = 4;
@@ -2317,7 +2341,7 @@ const tjs_char *__strftime_fmt_1(tjs_char (*s)[100], size_t *l, int f, const tm 
 //             *l = 0;
 //             return "";
 //         }
-//         *l = snprintf(*s, sizeof *s, "%+.2d%.2d",
+//         *l = snprintf(*s, sizeof *s / sizeof **s, "%+.2d%.2d",
 //             (-tm->__tm_gmtoff)/3600,
 //             abs(tm->__tm_gmtoff%3600)/60);
 //         return *s;
@@ -2335,7 +2359,7 @@ const tjs_char *__strftime_fmt_1(tjs_char (*s)[100], size_t *l, int f, const tm 
         return 0;
     }
 number:
-    *l = snprintf(*s, sizeof *s, TJS_W("%0*lld"), width, val);
+    *l = snprintf(*s, sizeof *s / sizeof **s, TJS_W("%0*lld"), width, val);
     return *s;
 nl_strcat:
     fmt = __nl_langinfo_l(item);
@@ -2345,7 +2369,7 @@ string:
 nl_strftime:
     fmt = __nl_langinfo_l(item);
 recu_strftime:
-    *l = __strftime_l(*s, sizeof *s, fmt, tm);
+    *l = __strftime_l(*s, sizeof *s / sizeof **s, fmt, tm);
     if (!*l) return 0;
     return *s;
 }
@@ -2471,6 +2495,11 @@ size_t __strftime_l(tjs_char *s, size_t n, const tjs_char *f, const tm *tm)
             continue;
         }
         f++;
+        // MSVC's '#' (alternate form) flag: the engine's own log-file header
+        // asks for "%#c". The C locale has one form of each conversion, so
+        // the flag is accepted and has no effect, rather than failing the
+        // whole conversion.
+        if (*f == '#') f++;
         if ((plus = (*f == '+'))) f++;
         width = strtox(f, &p, 10, -999);
         if (*p == 'C' || *p == 'F' || *p == 'G' || *p == 'Y') {
