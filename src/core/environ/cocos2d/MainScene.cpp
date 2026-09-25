@@ -2833,6 +2833,10 @@ cocos2d::Label *TVPCreateUILabel(float fontSize, const cocos2d::Size &dimensions
 	return label;
 }
 
+namespace TJS {
+	void TVPConsoleLog(const tjs_char *l); // below
+}
+
 void TVPConsoleLog(const ttstr &l, bool important) {
 	static bool TVPLoggingToConsole = IndividualConfigManager::GetInstance()->GetValue<bool>("outputlog", true);
 	if (!TVPLoggingToConsole) return;
@@ -2846,10 +2850,10 @@ void TVPConsoleLog(const ttstr &l, bool important) {
 	WideCharToMultiByte(CP_ACP, 0, l.c_str(), -1, buf, sizeof(buf), nullptr, FALSE);
 	puts(buf);
 #else
-    cocos2d::log("%ls", l.c_str());
-// 	std::string utf8;
-// 	if (StringUtils::UTF16ToUTF8(l.c_str(), utf8))
-// 		cocos2d::log("%s", utf8.c_str());
+	// Not "%ls": that reads a wchar_t string, 32 bits a character on Android,
+	// while ttstr holds 16-bit tjs_char, so it paired characters into
+	// invalid code points and read past the terminator.
+	TJS::TVPConsoleLog(l.c_str());
 #endif
 }
 
