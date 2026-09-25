@@ -931,6 +931,17 @@ public class MainActivity extends KR2Activity {
 	 * collected, not a call.
 	 */
 	private void askFocusStep(int dx, int dy) {
+		// The engine steps from its last mouse position, and before any pad
+		// input there has been none: it would step from the corner while the
+		// ring, the moment it appears, stands in the middle. Placing the
+		// pointer first -- unseen, the answer decides whether the ring shows --
+		// makes the first press step from where the ring would be, like every
+		// press after it. The move is posted ahead of the question on the same
+		// queue, so the engine has it before it walks.
+		if (!cursorPlaced && pointerEnabled) {
+			View root = getWindow().getDecorView();
+			setCursor(root.getWidth() / 2f, root.getHeight() / 2f);
+		}
 		stepDirX = dx;
 		stepDirY = dy;
 		stepPolls = 0;
