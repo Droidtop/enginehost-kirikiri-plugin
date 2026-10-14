@@ -1,16 +1,15 @@
 # Third-party components
 
 This repository is a fork of Kirikiroid2Yuri (https://github.com/YuriSizuku/Kirikiroid2Yuri),
-itself built on the Kirikiri2/TVP2 engine. `LICENSE` at the repository root is
-kept unmodified and verified byte-identical to Kirikiroid2Yuri's own
-`LICENSE` (a modified-BSD-style licence covering W.Dee and the Kirikiri Z
+itself built on the Kirikiri2/TVP2 engine. `LICENSE.kirikiri` is Kirikiroid2Yuri's own `LICENSE`, kept unmodified (byte-identical;
+the root `LICENSE` is now the GPL-3.0 text of the combined work) (a modified-BSD-style licence covering W.Dee and the Kirikiri Z
 Project contributors). `enginehost/LICENSES.md` documents the notice for the
 bundled Noto Sans CJK JP font that ships in the built bundle; this file
 extends that index to the rest of `thirdparty/`.
 
 | Component | Licence | Source | Where in tree |
 |---|---|---|---|
-| Kirikiroid2Yuri / Kirikiri2 (TVP2) | modified BSD-style (see `LICENSE`) | https://github.com/YuriSizuku/Kirikiroid2Yuri | entire tree (fork) |
+| Kirikiroid2Yuri / Kirikiri2 (TVP2) | modified BSD-style (see `LICENSE.kirikiri`) | https://github.com/YuriSizuku/Kirikiroid2Yuri | entire tree (fork) |
 | SQLite3 (amalgamation) | public domain | https://www.sqlite.org | `thirdparty/sqlite3` |
 | Oniguruma | BSD-2-Clause | https://github.com/kkos/oniguruma | `thirdparty/oniguruma` |
 | Opus | BSD-3-Clause | https://opus-codec.org | `thirdparty/opus` |
@@ -27,13 +26,10 @@ the repository to preserve verbatim.
 
 ## Declared bundle licence
 
-`enginehost/bundle-metadata.json` declares `BSD-3-Clause`: `LICENSE` has
-exactly BSD-3-Clause's three conditions (keep the notice with source, carry it
-in documentation with binaries, no endorsement without permission), and that
-is the most permissive licence the upstream code allows. It used to declare
-`GPL-2.0-or-later`, which nothing upstream requires. The bundled components
-above keep their own licences; none of them is GPL in the x86_64 and x86
-builds (see FFmpeg below).
+`enginehost/bundle-metadata.json` declares `GPL-3.0` for the combined bundle. Kirikiri's licence is a BSD-3-Clause
+style licence (keep the notice with source, carry it in documentation with binaries, no endorsement without
+permission), which GPL-3.0 can include; `LICENSE.kirikiri` is kept for that notice. The bundled components above keep
+their own licences.
 
 ## Obligations (flagged, not resolved here)
 

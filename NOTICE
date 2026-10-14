@@ -1,0 +1,12 @@
+Kirikiri plugin for Enginehost
+Enginehost wrapper and integration code: Copyright the Enginehost contributors, GNU General Public
+License, version 3 (LICENSE).
+
+Upstream: Kirikiroid2Yuri / Kirikiri2 (TVP2) (https://github.com/YuriSizuku/Kirikiroid2Yuri), modified BSD-style licence of W.Dee and the Kirikiri Z Project contributors.
+The Kirikiri licence is BSD-3-Clause style and GPL-compatible; its conditions (keep the notice, reproduce it
+with binaries, no endorsement) are met by LICENSE.kirikiri and the bundle's notices.
+Upstream's own licence and notice files stay in the tree unchanged: LICENSE.kirikiri (a byte-identical copy of upstream's LICENSE, which the GPL-3.0 LICENSE now takes the place of), thirdparty/.
+The combined work is distributed under GPL-3.0 (owner rule, 2026-10-14: a codebase that can be
+GPL-3.0 must be). Every upstream copyright and licence notice in the source files stays as it is.
+FFmpeg in thirdparty/ is LGPL for the x86 and x86_64 builds; the arm64-v8a tree is upstream's build and has not
+been audited for --enable-gpl, a GPL-2.0-only combination or non-free parts.
