@@ -17,4 +17,4 @@ copyright notices. CI restores the dependency archives published by upstream's
 
 The `cxdec-osana` archive profile required by the acceptance game remains a
 clean-room compatibility task. Research-only implementations with missing or
-nonstandard licenses must not be copied into this GPL-distributed fork.
+nonstandard licenses must not be copied into this BSD-3-Clause-distributed fork.

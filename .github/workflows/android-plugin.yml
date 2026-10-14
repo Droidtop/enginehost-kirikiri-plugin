@@ -23,7 +23,6 @@ on:
         description: "Release tag (default: derived from the bundle id; testing adds -testing)"
         type: string
         default: ""
-
 permissions:
   contents: read
 
@@ -32,12 +31,105 @@ permissions:
 # it had just obsoleted, so a five-push fix session burned five builds and
 # could email five failures for one problem. Keyed on the ref, so branches
 # and PRs never cancel each other.
+#
+# A promotion gets a group of its own, keyed on its run id, and so is never
+# cancelled by anything: it publishes one named, tested commit, and the next
+# push to the branch it was dispatched from has nothing to do with it. Keying
+# it on the ref cost exactly that once -- the dispatch that was to publish
+# build 77 to the testing channel was killed by the next commit landing on
+# plugin/stable minutes later.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'push' }}
   cancel-in-progress: true
 
 jobs:
+  # Every ABI but aarch64 has to have its native dependency tree built here,
+  # because upstream Kirikiroid2Yuri publishes thirdparty_build.tar.gz for
+  # aarch64 and nothing else. That is eighteen static libraries and takes about
+  # an hour, so it is keyed on the content of the scripts and patches that
+  # define it: a push that does not touch them restores the tree instead of
+  # rebuilding it, and the plugin job stays the four minutes it is today.
+  thirdparty:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [androidx32, androidx64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - id: tree
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: deps-out
+          key: kk-thirdparty-v1-${{ matrix.platform }}-${{ hashFiles('script/**', 'thirdparty/patch/**') }}
+      - name: Make room for the source trees
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL "$ANDROID_HOME/ndk"
+          df -h /
+      - name: Install the NDK this plugin is built with
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zstd autoconf automake libtool pkg-config
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;25.2.9519653" > /dev/null
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> "$GITHUB_ENV"
+      - name: Fetch the dependency sources upstream publishes
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 5 --output thirdparty_port.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_port.tar.gz
+          tar xzf thirdparty_port.tar.gz
+          rm -f thirdparty_port.tar.gz
+      - name: Build the dependency tree for ${{ matrix.platform }}
+        if: steps.tree.outputs.cache-hit != 'true'
+        working-directory: script
+        run: PORTS_ONLY=yes bash ./cross_android.sh ${{ matrix.platform }}
+      # The scripts do not stop on a failed library -- upstream's do not either
+      # -- so rather than trusting a green log, compare what was produced with
+      # what upstream's own aarch64 tree contains. Every archive there must be
+      # here, bar three that are absent on purpose: libtegra_hal.a is opencv's
+      # ARM HAL and exists for no other architecture, and libext_tolua.a and
+      # libext_luasocket.a belong to cocos2d-x's Lua bindings, which
+      # build_cocos2dx turns off with BUILD_LUA_LIBS=OFF and this engine does
+      # not link. A library that quietly failed to build shows up as a name in
+      # this list.
+      - name: Check the tree against upstream's aarch64 one
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --location --retry 5 --output thirdparty_build.tar.gz \
+            https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
+          mkdir -p reference && tar xzf thirdparty_build.tar.gz -C reference
+          ls reference/thirdparty/build/arch_androida64/lib/*.a \
+            | xargs -n1 basename \
+            | grep -vE '^(libtegra_hal|libext_tolua|libext_luasocket)\.a$' | sort > expected.txt
+          ls thirdparty/build/arch_${{ matrix.platform }}/lib/*.a \
+            | xargs -n1 basename | sort > got.txt
+          missing="$(comm -23 expected.txt got.txt)"
+          if [ -n "$missing" ]; then
+            echo "::error::missing from arch_${{ matrix.platform }}: $missing"
+            exit 1
+          fi
+          comm -13 expected.txt got.txt | sed 's/^/extra (fine): /'
+          rm -rf reference thirdparty_build.tar.gz
+      - name: Pack the tree
+        if: steps.tree.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p deps-out
+          tar --zstd -cf deps-out/thirdparty_build_${{ matrix.platform }}.tar.zst \
+            thirdparty/build/arch_${{ matrix.platform }}
+          ls -la deps-out
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: thirdparty-${{ matrix.platform }}
+          path: deps-out/*.tar.zst
+          if-no-files-found: error
+
   android:
+    needs: thirdparty
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -51,11 +143,44 @@ jobs:
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/deps/thirdparty_build.tar.gz
           tar xzf thirdparty_port.tar.gz
           tar xzf thirdparty_build.tar.gz
+      # Everything but aarch64 comes from the thirdparty job above, one tree per
+      # ABI, unpacked into the same thirdparty/build/arch_<platform> layout.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: thirdparty-*
+          path: thirdparty-trees
+          merge-multiple: true
+      - name: Restore the dependency trees built for the other ABIs
+        run: |
+          for tree in thirdparty-trees/*.tar.zst; do
+            echo "## $tree"
+            tar --zstd -xf "$tree"
+          done
+          rm -rf thirdparty-trees
+          ls thirdparty/build
       - name: Restore runtime assets
         run: |
           curl --fail --location --retry 5 --output upstream.apk \
             https://github.com/YuriSizuku/Kirikiroid2Yuri/releases/download/1.3.9_yuri/Kirikiroid2_yuri_1.3.9.apk
           7z x upstream.apk assets
+      # A Japanese game on a console has no Japanese font to fall back on: the
+      # best the engine could otherwise find is Android's Simplified-Chinese
+      # fallback face, whose kanji are the wrong forms, or nothing at all. This
+      # is the font half of what Locale Emulator does on Windows, and it is the
+      # face TVPInitFontNames tries first. Pinned to the Sans2.004 tag and
+      # checked by hash: byte for byte the file inside that release's
+      # 06_NotoSansCJKjp.zip. Licence: SIL Open Font License 1.1, shipped
+      # beside it and recorded in enginehost/LICENSES.md.
+      - name: Add the shipped Japanese font (Noto Sans CJK JP, OFL 1.1)
+        run: |
+          mkdir -p assets
+          noto=https://raw.githubusercontent.com/notofonts/noto-cjk/Sans2.004
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-Regular.otf \
+            "$noto/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf"
+          curl --fail --location --retry 5 --output assets/NotoSansCJKjp-LICENSE.txt \
+            "$noto/LICENSE"
+          echo "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5  assets/NotoSansCJKjp-Regular.otf" | sha256sum --check --strict -
+          echo "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2  assets/NotoSansCJKjp-LICENSE.txt" | sha256sum --check --strict -
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -67,8 +192,44 @@ jobs:
           sudo mkdir -p /build_android
           sudo chown "$USER" /build_android
           ./gradlew assembleDebug --no-daemon --stacktrace
+      # The shipped library is stripped. A crash in it names only offsets, so
+      # keep the unstripped library from the same build beside the release;
+      # a tombstone plus this file gives the function and line.
+      - name: Keep the unstripped native library for symbolizing crashes
+        run: |
+          mkdir -p build/symbols
+          # Gradle's buildDir is redirected to build_android/ at the repo root
+          # and the CMake objects land under its intermediates/cxx tree (path
+          # segment "cxx", not "cmake"), so the previous find matched nothing
+          # and the artifact was always empty. Search both the build output and
+          # the .cxx staging directory, and keep only libraries that still have
+          # a symbol table -- the copies under intermediates are stripped. The
+          # ABI is part of the path, so a bundle with several of them keeps an
+          # unstripped library for each rather than the console's alone.
+          readelf="$(find "${ANDROID_NDK_HOME:-${ANDROID_SDK_ROOT:-$ANDROID_HOME}/ndk}"             -name llvm-readelf -path '*linux-x86_64*' 2>/dev/null | head -1)"
+          test -n "$readelf"
+          while IFS= read -r so; do
+            if "$readelf" -S "$so" | grep -q '\.symtab'; then
+              abi="$(basename "$(dirname "$so")")"
+              mkdir -p "build/symbols/$abi"
+              cp "$so" "build/symbols/$abi/"
+            fi
+          done < <(find build_android project/android/app/.cxx -name '*.so' 2>/dev/null)
+          ls -la build/symbols
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-symbols-${{ github.run_number }}
+          path: build/symbols/
+          if-no-files-found: warn
+      # A plugin branch signs every green build, because that is what feeds the
+      # unstable channel. A promotion signs whatever ref it was dispatched
+      # against, which is the point of promoting: the commit that was proven on
+      # hardware is rarely the branch tip by the time its proof comes back, so
+      # it is dispatched from a ref of its own. Without this a promotion from
+      # anything but a plugin branch built cleanly, produced no bundle, and the
+      # publish job said "nothing to publish" while the run stayed green.
       - name: Pack the unsigned bundle inputs
-        if: startsWith(github.ref, 'refs/heads/plugin/')
+        if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         run: |
           set -euo pipefail
           apk="$(find build_android/outputs/apk/debug -name '*.apk' -print -quit)"
@@ -76,6 +237,26 @@ jobs:
           mkdir -p build/unsigned/payload
           cp "$apk" build/unsigned/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
+          # The wrapper APK is multidex. enginehost class-loads exactly the
+          # dex files this metadata declares, so a hard-coded single-entry
+          # list silently drops the rest of the wrapper at launch. Declare
+          # what the payload actually contains, in load order.
+          python3 - <<'DEXES'
+          import json, pathlib, re
+          payload = pathlib.Path('build/unsigned/payload')
+          def order(p):
+              # classes.dex, classes2.dex ... classes10.dex is numeric order;
+              # a lexical sort would put 10 ahead of 2.
+              m = re.fullmatch(r'classes(\d*)\.dex', p.name)
+              return int(m.group(1) or 1)
+          dexes = sorted(payload.glob('classes*.dex'), key=order)
+          assert dexes, 'no classes*.dex in the APK payload'
+          meta = pathlib.Path('enginehost/bundle-metadata.json')
+          data = json.loads(meta.read_text())
+          data['dexFiles'] = [d.name for d in dexes]
+          meta.write_text(json.dumps(data, indent=2) + '\n')
+          print('dexFiles =', data['dexFiles'])
+          DEXES
           cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
           cp enginehost/bundle-metadata.json build/unsigned/bundle-metadata.json
           # A tar keeps the file modes the manifest signs; an artifact would not.
@@ -85,7 +266,7 @@ jobs:
           name: enginehost-kirikiri2-debug-apk
           path: ${{ github.workspace }}/build_android/outputs/apk/debug/*.apk
           if-no-files-found: error
-      - if: startsWith(github.ref, 'refs/heads/plugin/')
+      - if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: enginehost-kirikiri2-bundle-unsigned
@@ -98,7 +279,7 @@ jobs:
     # docs/security/2026-09-24-ci-supply-chain.md). Signs exactly when the
     # build packed a bundle; publish and unstable skip with it.
     needs: android
-    if: startsWith(github.ref, 'refs/heads/plugin/')
+    if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
     permissions:
       contents: read
     uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
