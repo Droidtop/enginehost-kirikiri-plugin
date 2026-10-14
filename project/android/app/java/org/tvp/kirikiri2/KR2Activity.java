@@ -303,16 +303,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
-		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
-		if (engineHostPath != null) {
-			String context = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_CONTEXT");
-			if (context != null && !context.isEmpty() && !"default".equals(context)) {
-				throw new IllegalArgumentException("Unsupported KiriKiri engineContext: " + context);
-			}
-			if (!new File(engineHostPath).isDirectory()) {
-				throw new IllegalArgumentException("enginehost did not provide a valid KiriKiri game folder");
-			}
-		}
 		sInstance = this;
         Sp = PreferenceManager.getDefaultSharedPreferences(this);
 		super.onCreate(savedInstanceState);
@@ -329,39 +319,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
             requestExternalWrite();
         }
 		initDump(this.getFilesDir().getAbsolutePath() + "/dump");
-
-		// Real hook for a host app to skip the file-browser UI and start a
-		// specific game folder directly -- see nativeSetStartupPath's own
-		// doc comment in AndroidUtils.cpp (TVPCheckStartupArg) for why this
-		// exists and exactly when it's safe to call. Checks enginehost's
-		// own real dev.enginehost.LAUNCH contract extra ("path" --
-		// dev.enginehost.GameRunner's real putExtra key) first, since this
-		// activity IS now a real enginehost plugin (declares
-		// dev.enginehost.plugin.RUN in the manifest directly, no separate
-		// wrapper app); EXTRA_STARTUP_PATH stays as a fallback for any
-		// other real caller that isn't enginehost.
-		String startupPath = engineHostPath;
-		if (startupPath != null && !startupPath.isEmpty()) {
-			File gameFolder = new File(startupPath);
-			File looseStartup = new File(gameFolder, "startup.tjs");
-			File mainArchive = new File(gameFolder, "data.xp3");
-			if (looseStartup.isFile()) {
-				startupPath = looseStartup.getAbsolutePath();
-			} else if (mainArchive.isFile()) {
-				startupPath = mainArchive.getAbsolutePath();
-			}
-		}
-		if (startupPath == null || startupPath.isEmpty()) {
-			startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
-		}
-		if (startupPath != null && !startupPath.isEmpty()) {
-			nativeSetStartupPath(startupPath);
-		}
 	}
-
-	public static final String EXTRA_STARTUP_PATH = "org.tvp.kirikiri2.STARTUP_PATH";
-
-	private static native void nativeSetStartupPath(String path);
 	
 	@Override
 	public void onDestroy() {
@@ -672,19 +630,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
-                // The keys a visual novel is actually driven by, so that a
-                // gamepad (translated in MainActivity) and a keyboard reach
-                // the engine: advance, skip, menu, backlog.
-                case KeyEvent.KEYCODE_SPACE:
-                case KeyEvent.KEYCODE_ESCAPE:
-                case KeyEvent.KEYCODE_CTRL_LEFT:
-                case KeyEvent.KEYCODE_CTRL_RIGHT:
-                case KeyEvent.KEYCODE_PAGE_UP:
-                case KeyEvent.KEYCODE_PAGE_DOWN:
-                // KAG's own shortcut letters: A is auto-advance and R is the
-                // backlog, and there is no other key for either.
-                case KeyEvent.KEYCODE_A:
-                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, true);
                     return true;
                 default:
@@ -704,19 +649,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
-                // The keys a visual novel is actually driven by, so that a
-                // gamepad (translated in MainActivity) and a keyboard reach
-                // the engine: advance, skip, menu, backlog.
-                case KeyEvent.KEYCODE_SPACE:
-                case KeyEvent.KEYCODE_ESCAPE:
-                case KeyEvent.KEYCODE_CTRL_LEFT:
-                case KeyEvent.KEYCODE_CTRL_RIGHT:
-                case KeyEvent.KEYCODE_PAGE_UP:
-                case KeyEvent.KEYCODE_PAGE_DOWN:
-                // KAG's own shortcut letters: A is auto-advance and R is the
-                // backlog, and there is no other key for either.
-                case KeyEvent.KEYCODE_A:
-                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, false);
                     return true;
                 default:
