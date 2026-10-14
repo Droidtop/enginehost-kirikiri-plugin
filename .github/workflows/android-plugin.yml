@@ -158,6 +158,31 @@ jobs:
           done
           rm -rf thirdparty-trees
           ls thirdparty/build
+      # FFmpeg is LGPL-2.1-or-later only while it is configured without
+      # --enable-gpl and --enable-nonfree. The arm64-v8a tree is upstream's
+      # published build, so check what every tree's libraries report about
+      # themselves (av*_license(), stored as a string) rather than trusting the
+      # script: a GPL-only or non-free FFmpeg cannot ship in this GPL-3.0 bundle
+      # under the notices it carries (enginehost/LICENSES.md, audit 2026-10-14).
+      - name: Check that every FFmpeg build is LGPL-2.1-or-later
+        run: |
+          set -euo pipefail
+          trees=0
+          for tree in thirdparty/build/arch_*; do
+            trees=$((trees + 1))
+            for lib in avcodec avformat avfilter avutil swresample swscale; do
+              archive="$tree/lib/lib$lib.a"
+              test -f "$archive" || { echo "::error::$archive is missing"; exit 1; }
+              licence="$(strings -a "$archive" | grep -E "^lib$lib license: " | sort -u)"
+              if [ "$licence" != "lib$lib license: LGPL version 2.1 or later" ]; then
+                echo "::error::$archive reports '${licence:-no licence}', not LGPL-2.1-or-later"
+                exit 1
+              fi
+            done
+            echo "$tree: FFmpeg is LGPL-2.1-or-later"
+          done
+          test "$trees" -ge 2
+          test -f thirdparty/port/ffmpeg/COPYING.LGPLv2.1
       - name: Restore runtime assets
         run: |
           curl --fail --location --retry 5 --output upstream.apk \
@@ -258,6 +283,7 @@ jobs:
           print('dexFiles =', data['dexFiles'])
           DEXES
           cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
+          cp thirdparty/port/ffmpeg/COPYING.LGPLv2.1 build/unsigned/payload/LICENSE.ffmpeg.txt
           cp enginehost/bundle-metadata.json build/unsigned/bundle-metadata.json
           # A tar keeps the file modes the manifest signs; an artifact would not.
           tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json

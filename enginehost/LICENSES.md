@@ -31,3 +31,22 @@ PMincho, Meiryo, Tahoma and the rest of that set) are mapped onto it.
 
 Both files are fetched and hash-checked by the build workflow rather than
 committed here; the workflow step carries the same URLs and hashes.
+
+## FFmpeg (linked into the engine library)
+
+- Version: FFmpeg 3.3-git, https://github.com/zeas2/ffmpeg commit
+  `896ab301a75f47aca086936c033f10afc2f9e6d8` (the source upstream Kirikiroid2Yuri builds; also inside
+  its `deps` release asset `thirdparty_port.tar.gz`, sha256
+  `ba188338d8ca4e9b73854523fe39febca276b5cad2b89227010853ca88119d8a`).
+- Configuration, every ABI: `--enable-pic --disable-asm --enable-static --enable-shared --enable-small
+  --enable-swscale --disable-ffmpeg --disable-ffplay --disable-ffprobe --disable-avdevice
+  --disable-programs --disable-doc --enable-stripping` (cross-compile flags aside). No `--enable-gpl`,
+  `--enable-version3`, `--enable-nonfree` or external codec library. arm64-v8a is upstream's published
+  tree (`thirdparty_build.tar.gz`, sha256
+  `99edcfefc9685b14fe8a7cc2a63aa90be2d4f4652ae6843cd189490eb49f9729`), whose `libavutil.a` records
+  this configure line; x86 and x86_64 are built by this repository's CI with `script/_android.sh`.
+- Licence: GNU Lesser General Public License 2.1 or later; each library reports
+  "LGPL version 2.1 or later" and CI fails the build otherwise. The text ships as
+  `LICENSE.ffmpeg.txt` (FFmpeg's own `COPYING.LGPLv2.1`). The libraries are linked statically into
+  the engine library; the work's complete source (this repository and the FFmpeg source above) is
+  published, which is what lets a recipient relink against a modified FFmpeg.

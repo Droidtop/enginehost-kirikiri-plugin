@@ -15,7 +15,7 @@ extends that index to the rest of `thirdparty/`.
 | Opus | BSD-3-Clause | https://opus-codec.org | `thirdparty/opus` |
 | cocos2d-x | MIT | https://github.com/cocos2d/cocos2d-x | `thirdparty/cocos2d-x` |
 | p7zip | LGPL-2.1 / BSD mix (per-file) | https://sourceforge.net/projects/p7zip | `thirdparty/p7zip` |
-| FFmpeg | LGPL or GPL depending on build configuration | https://ffmpeg.org | `thirdparty/ffmpeg` |
+| FFmpeg 3.3-git (zeas2/ffmpeg 896ab301) | LGPL-2.1-or-later (built without --enable-gpl/--enable-nonfree; audited 2026-10-14) | https://github.com/zeas2/ffmpeg | `thirdparty/port/ffmpeg` (fetched at build time) |
 | Noto Sans CJK JP | SIL Open Font License 1.1 | see `enginehost/LICENSES.md` | fetched at build time, not committed |
 
 None of `cocos2d-x`, `ffmpeg`, `oniguruma`, `opus`, `p7zip`, or `sqlite3`
@@ -31,13 +31,13 @@ style licence (keep the notice with source, carry it in documentation with binar
 permission), which GPL-3.0 can include; `LICENSE.kirikiri` is kept for that notice. The bundled components above keep
 their own licences.
 
-## Obligations (flagged, not resolved here)
+## Obligations
 
-FFmpeg is GPL when built with `--enable-gpl` (for components like x264) and
-LGPL otherwise; which applies depends on `thirdparty/ffmpeg`'s actual build
-configuration. `script/_android.sh`, which builds the x86_64 and x86 trees,
-configures it without `--enable-gpl`, `--enable-version3` or
-`--enable-nonfree`, so those builds are LGPL-2.1-or-later; the arm64-v8a tree
-is upstream's published build and was not re-audited. If the build enables GPL
-components, source-offer obligations attach to the whole binary. This is
-worth a follow-up pass against the actual FFmpeg build flags used in CI.
+FFmpeg would be GPL if it were built with `--enable-gpl` and unredistributable with
+`--enable-nonfree`. Neither is the case for any ABI (audit 2026-10-14, recorded in `NOTICE` and
+`enginehost/LICENSES.md`): the arm64-v8a tree is upstream's published build, configured with exactly
+the line `script/_android.sh` uses for the x86 and x86_64 trees built here, and every FFmpeg library
+reports "LGPL version 2.1 or later". The build workflow checks that string for every ABI and fails
+otherwise, so a changed upstream tree cannot slip a GPL-only or non-free FFmpeg into the bundle. The
+bundle carries FFmpeg's LGPL-2.1 text (`LICENSE.ffmpeg.txt`); the source is zeas2/ffmpeg at
+896ab301a75f47aca086936c033f10afc2f9e6d8.
