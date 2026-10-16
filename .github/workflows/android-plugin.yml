@@ -162,13 +162,14 @@ jobs:
       # --enable-gpl and --enable-nonfree. The arm64-v8a tree is upstream's
       # published build, so check what every tree's libraries report about
       # themselves (av*_license(), stored as a string) rather than trusting the
-      # script: a GPL-only or non-free FFmpeg cannot ship in this GPL-3.0 bundle
+      # script (only the three ABIs the bundle ships; upstream's tarball also unpacks an
+      # armeabi-v7a tree that has no FFmpeg libraries and is never built into the app): a GPL-only or non-free FFmpeg cannot ship in this GPL-3.0 bundle
       # under the notices it carries (enginehost/LICENSES.md, audit 2026-10-14).
       - name: Check that every FFmpeg build is LGPL-2.1-or-later
         run: |
           set -euo pipefail
           trees=0
-          for tree in thirdparty/build/arch_*; do
+          for tree in thirdparty/build/arch_androida64 thirdparty/build/arch_androidx32 thirdparty/build/arch_androidx64; do
             trees=$((trees + 1))
             for lib in avcodec avformat avfilter avutil swresample swscale; do
               archive="$tree/lib/lib$lib.a"
@@ -181,7 +182,7 @@ jobs:
             done
             echo "$tree: FFmpeg is LGPL-2.1-or-later"
           done
-          test "$trees" -ge 2
+          test "$trees" -eq 3
           test -f thirdparty/port/ffmpeg/COPYING.LGPLv2.1
       - name: Restore runtime assets
         run: |
