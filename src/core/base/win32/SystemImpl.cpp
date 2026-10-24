@@ -254,8 +254,21 @@ tjs_int TVPGetOSBits()
 //---------------------------------------------------------------------------
 // TVPShellExecute
 //---------------------------------------------------------------------------
+extern bool TVPOfferLink(const std::string &url);
+
 bool TVPShellExecute(const ttstr &target, const ttstr &param)
 {
+	// Enginehost: System.shellExecute of a web or mail link (a game's homepage or credits button)
+	// is offered by Enginehost (TVPOfferLink). Nothing else is executed, as before.
+	{
+		std::string link = target.AsStdString();
+		std::string lower = link;
+		for (auto &c : lower) if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+		if (lower.compare(0, 7, "http://") == 0 || lower.compare(0, 8, "https://") == 0 ||
+				lower.compare(0, 7, "mailto:") == 0) {
+			return TVPOfferLink(link);
+		}
+	}
 	// open or execute target file
 //	ttstr file = TVPGetNativeName(TVPNormalizeStorageName(target));
 #if 0
