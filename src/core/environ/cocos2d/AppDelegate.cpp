@@ -111,6 +111,9 @@ void TVPAppDelegate::applicationScreenSizeChanged(int newWidth, int newHeight)
 // 	director->getOpenGLView()->setFrameSize(newWidth, newHeight);
 }
 
+extern bool TVPOfferLink(const std::string &url);
+
 void TVPOpenPatchLibUrl() {
-	cocos2d::Application::getInstance()->openURL("https://zeas2.github.io/Kirikiroid2_patch/patch");
+	// Enginehost: offered like a game's link, never opened by the engine itself.
+	TVPOfferLink("https://zeas2.github.io/Kirikiroid2_patch/patch");
 }

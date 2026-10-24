@@ -37,6 +37,25 @@
 USING_NS_CC;
 
 #define KR2ActJavaPath "org/tvp/kirikiri2/KR2Activity"
+
+// Enginehost: a link the game or the engine opens is offered to the person by Enginehost, never
+// opened here (Enginehost docs/SPEC.md, "Links a game opens"). KR2Activity.offerLink hands it to
+// Enginehost's ActivityLinks; false when that route is missing, and then nothing opens.
+bool TVPOfferLink(const std::string &url) {
+	JniMethodInfo methodInfo;
+	if (!JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath, "offerLink", "(Ljava/lang/String;)Z")) {
+		return false;
+	}
+	jstring jurl = methodInfo.env->NewStringUTF(url.c_str());
+	jboolean taken = methodInfo.env->CallStaticBooleanMethod(methodInfo.classID, methodInfo.methodID, jurl);
+	if (methodInfo.env->ExceptionCheck()) {
+		methodInfo.env->ExceptionClear();
+		taken = JNI_FALSE;
+	}
+	methodInfo.env->DeleteLocalRef(jurl);
+	methodInfo.env->DeleteLocalRef(methodInfo.classID);
+	return taken == JNI_TRUE;
+}
 //#define KR2EntryJavaPath "org/tvp/kirikiri2/Kirikiroid2"
 
 extern unsigned int __page_size = getpagesize();
