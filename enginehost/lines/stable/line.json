@@ -2,7 +2,7 @@
   "upstream": {
     "repo": "YuriSizuku/Kirikiroid2Yuri",
     "ref": "engine/stable",
-    "commit": "013281de496e7d74ed31cb414f553b2f9af55bcc",
+    "commit": "12ded71ee91796b7856b7d9a4c34a1269e6bed1b",
     "basedOn": "YuriSizuku/Kirikiroid2Yuri bad9bebdd37d6b2788dd20ca657ebea5e6f6e7dd (v1.4.0beta)"
   },
   "version": "1.4.0"

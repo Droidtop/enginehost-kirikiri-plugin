@@ -18,3 +18,13 @@ copyright notices. CI restores the dependency archives published by upstream's
 The `cxdec-osana` archive profile required by the acceptance game remains a
 clean-room compatibility task. Research-only implementations with missing or
 nonstandard licenses must not be copied into this BSD-3-Clause-distributed fork.
+
+## Links the game opens are offered by Enginehost (2026-10-24)
+
+`System.shellExecute` of an http, https or mailto target (a homepage or credits link), and the
+engine's own patch-library button, go to `TVPOfferLink` (engine/stable, AndroidUtils.cpp). That
+calls `KR2Activity.offerLink`, which hands the link to Enginehost's
+`dev.enginehost.ActivityLinks.offer` by reflection, since this core runs its own Activity and has
+no `EngineHost`. Enginehost checks the link, names it, and offers to open or copy it (Enginehost
+docs/SPEC.md, "Links a game opens"). Before this, `shellExecute` did nothing on Android and
+answered true. Nothing else is executed, as before.

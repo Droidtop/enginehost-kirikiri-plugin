@@ -300,6 +300,24 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
 	static public KR2Activity sInstance;
 	static public KR2Activity GetInstance() {return sInstance;}
+
+	// Enginehost: a link the game or the engine opens (TVPOfferLink) is offered to the person by
+	// Enginehost, never opened here. This core runs its own Activity and has no EngineHost, so it
+	// reaches Enginehost's named bridge, dev.enginehost.ActivityLinks, by reflection (owner,
+	// 2026-10-24). False when that bridge is missing (an older Enginehost): nothing opens.
+	static public boolean offerLink(String url) {
+		android.app.Activity activity = sInstance;
+		if (activity == null || url == null) return false;
+		try {
+			Class<?> links = Class.forName("dev.enginehost.ActivityLinks");
+			Object taken = links.getMethod("offer", android.app.Activity.class, String.class)
+				.invoke(null, activity, url);
+			return Boolean.TRUE.equals(taken);
+		} catch (Exception e) {
+			android.util.Log.w("EnginehostKiriKiri", "The link was not offered: " + e);
+			return false;
+		}
+	}
     
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
