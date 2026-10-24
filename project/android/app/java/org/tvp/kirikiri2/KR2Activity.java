@@ -319,6 +319,23 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		}
 	}
     
+	/** The game folder Enginehost started, or null for a launch without Enginehost. */
+	static File sEngineHostGame;
+
+	/**
+	 * KiriKiri's own files (the global preference, the font cache, dumps) when Enginehost started
+	 * it: the save folder's "kirikiri-engine". The native side finds them through getFilesDir() on
+	 * this activity, so this one override moves them all. Under the sandbox's lockdown Enginehost's
+	 * private files are not the core's (Droidtop/tracker#550); the save folder is, as AGS keeps its
+	 * own in "ags-engine".
+	 */
+	private File engineHostFiles;
+
+	@Override
+	public File getFilesDir() {
+		return engineHostFiles != null ? engineHostFiles : super.getFilesDir();
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
@@ -332,20 +349,37 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 			}
 		}
 		sInstance = this;
+		if (engineHostPath != null) {
+			sEngineHostGame = new File(engineHostPath);
+			String save = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+			if (save != null && !save.isEmpty()) {
+				File own = new File(save, "kirikiri-engine");
+				own.mkdirs();
+				if (own.isDirectory()) engineHostFiles = own;
+			}
+		}
         Sp = PreferenceManager.getDefaultSharedPreferences(this);
 		super.onCreate(savedInstanceState);
 	
-		if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP) {
-			for(String path : getExtSdCardPaths(this)) {
-		        if (!isWritableNormalOrSaf(path)) {
-		            guideDialogForLEXA(path);
-		        }
+		// Started by Enginehost, the game's storage is Enginehost's to grant: it opens the
+		// game and save folders for the core, through the sandbox's broker when the core is
+		// locked down. The standalone app's own checks would only get in the way. Locked
+		// down, the SD-card root is outside every grant, so this showed its "/storage/..."
+		// access dialog over the game, and Cancel left a black screen (Droidtop/tracker#550,
+		// Retroid Pocket 5, 2026-10-24). They stay for a launch without Enginehost.
+		if (engineHostPath == null) {
+			if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP) {
+				for(String path : getExtSdCardPaths(this)) {
+			        if (!isWritableNormalOrSaf(path)) {
+			            guideDialogForLEXA(path);
+			        }
+				}
 			}
+
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+	            requestExternalWrite();
+	        }
 		}
-		
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            requestExternalWrite();
-        }
 		initDump(this.getFilesDir().getAbsolutePath() + "/dump");
 
 		// Real hook for a host app to skip the file-browser UI and start a
@@ -857,6 +891,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     public int get_res_sd_operate_step() { return -1; }
 
     static void requireLEXA(final String path) {
+		// The native side's way to the same SD-card dialog; Enginehost owns storage when it started the game.
+		if (sEngineHostGame != null) return;
 		msgHandler.post(new Runnable() {
 			@Override
 			public void run() {
@@ -914,6 +950,17 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static final boolean isWritableNormal(final String path) {
+        // TVPCheckStartupPath asks whether the game can save beside itself by probing its folder.
+        // Started by Enginehost, it saves in "savedata" there, the one game sub-folder the bundle
+        // declares writable (gameWrites); the rest of the folder stays read-only under the lockdown,
+        // and probing it failed to "use the internal path" (Droidtop/tracker#550). So the answer is
+        // whether savedata takes writes.
+        File game = sEngineHostGame;
+        if (game != null && path != null && path.startsWith(game.getAbsolutePath() + "/")) {
+            File saves = new File(game, "savedata");
+            saves.mkdirs();
+            return saves.isDirectory() && saves.canWrite();
+        }
         boolean ret = isWritableNormalOrSaf(path);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestExternalWrite();
