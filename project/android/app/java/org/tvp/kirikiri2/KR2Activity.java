@@ -337,19 +337,16 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 	}
 
 	/**
-	 * KiriKiri's preferences (PreferenceManager's defaults: the SAF tree it was given, UI choices)
-	 * beside its other files when Enginehost started it. Enginehost's own shared_prefs are not the
-	 * core's: under the lockdown every read and write of them was refused, 150 times a launch
-	 * (Droidtop/tracker#550, dev.494). Context.getSharedPreferences(File, int) is API 24.
+	 * KiriKiri's preferences (PreferenceManager's defaults: the SAF tree it was given, UI choices;
+	 * cocos2d-x's UserDefault) beside its other files when Enginehost started it. Enginehost's own
+	 * shared_prefs are not the core's: under the lockdown every read and write of them was refused,
+	 * about 150 times a launch (Droidtop/tracker#550, dev.494). The platform writes preferences only
+	 * under the app's data directory, so these are kept by [FilePreferences].
 	 */
 	@Override
 	public SharedPreferences getSharedPreferences(String name, int mode) {
-		if (engineHostFiles == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-			return super.getSharedPreferences(name, mode);
-		}
-		File folder = new File(engineHostFiles, "shared_prefs");
-		folder.mkdirs();
-		return super.getSharedPreferences(new File(folder, name + ".xml"), mode);
+		if (engineHostFiles == null) return super.getSharedPreferences(name, mode);
+		return FilePreferences.open(new File(new File(engineHostFiles, "shared_prefs"), name + ".json"));
 	}
 
 	@Override
