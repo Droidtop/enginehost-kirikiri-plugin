@@ -44,7 +44,7 @@ committed here; the workflow step carries the same URLs and hashes.
   `--enable-version3`, `--enable-nonfree` or external codec library. arm64-v8a is upstream's published
   tree (`thirdparty_build.tar.gz`, sha256
   `99edcfefc9685b14fe8a7cc2a63aa90be2d4f4652ae6843cd189490eb49f9729`), whose `libavutil.a` records
-  this configure line; x86 and x86_64 are built by this repository's CI with `script/_android.sh`.
+  this configure line; x86_64 is built by this repository's CI with `script/_android.sh`.
 - Licence: GNU Lesser General Public License 2.1 or later; each library reports
   "LGPL version 2.1 or later" and CI fails the build otherwise. The text ships as
   `LICENSE.ffmpeg.txt` (FFmpeg's own `COPYING.LGPLv2.1`). The libraries are linked statically into
