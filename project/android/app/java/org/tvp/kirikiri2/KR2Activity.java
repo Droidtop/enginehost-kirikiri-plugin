@@ -336,6 +336,22 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		return engineHostFiles != null ? engineHostFiles : super.getFilesDir();
 	}
 
+	/**
+	 * KiriKiri's preferences (PreferenceManager's defaults: the SAF tree it was given, UI choices)
+	 * beside its other files when Enginehost started it. Enginehost's own shared_prefs are not the
+	 * core's: under the lockdown every read and write of them was refused, 150 times a launch
+	 * (Droidtop/tracker#550, dev.494). Context.getSharedPreferences(File, int) is API 24.
+	 */
+	@Override
+	public SharedPreferences getSharedPreferences(String name, int mode) {
+		if (engineHostFiles == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+			return super.getSharedPreferences(name, mode);
+		}
+		File folder = new File(engineHostFiles, "shared_prefs");
+		folder.mkdirs();
+		return super.getSharedPreferences(new File(folder, name + ".xml"), mode);
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
 		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
@@ -360,6 +376,20 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 		}
         Sp = PreferenceManager.getDefaultSharedPreferences(this);
 		super.onCreate(savedInstanceState);
+		if (engineHostPath != null) {
+			// JniHelper looks classes up with the loader getClassLoader() gave Cocos2dxHelper, by
+			// slash name, and on the rig it once failed to find this one on the GL thread
+			// (Droidtop/tracker#550, dev.494). Whether the same loader finds it here says whether that
+			// lookup is the loader's or the thread's.
+			ClassLoader loader = getClassLoader();
+			String found;
+			try {
+				found = loader.loadClass("org/cocos2dx/lib/Cocos2dxRenderer") != null ? "yes" : "no";
+			} catch (Throwable e) {
+				found = "no (" + e + ")";
+			}
+			Log.i("kr2activaty", "class loader " + loader.getClass().getName() + " finds org/cocos2dx/lib/Cocos2dxRenderer: " + found);
+		}
 	
 		// Started by Enginehost, the game's storage is Enginehost's to grant: it opens the
 		// game and save folders for the core, through the sandbox's broker when the core is
