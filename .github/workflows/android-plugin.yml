@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [androidx32, androidx64]
+        platform: [androidx64]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -162,14 +162,14 @@ jobs:
       # --enable-gpl and --enable-nonfree. The arm64-v8a tree is upstream's
       # published build, so check what every tree's libraries report about
       # themselves (av*_license(), stored as a string) rather than trusting the
-      # script (only the three ABIs the bundle ships; upstream's tarball also unpacks an
+      # script (only the two ABIs the bundle ships; upstream's tarball also unpacks an
       # armeabi-v7a tree that has no FFmpeg libraries and is never built into the app): a GPL-only or non-free FFmpeg cannot ship in this GPL-3.0 bundle
       # under the notices it carries (enginehost/LICENSES.md, audit 2026-10-14).
       - name: Check that every FFmpeg build is LGPL-2.1-or-later
         run: |
           set -euo pipefail
           trees=0
-          for tree in thirdparty/build/arch_androida64 thirdparty/build/arch_androidx32 thirdparty/build/arch_androidx64; do
+          for tree in thirdparty/build/arch_androida64 thirdparty/build/arch_androidx64; do
             trees=$((trees + 1))
             for lib in avcodec avformat avfilter avutil swresample swscale; do
               archive="$tree/lib/lib$lib.a"
@@ -182,7 +182,7 @@ jobs:
             done
             echo "$tree: FFmpeg is LGPL-2.1-or-later"
           done
-          test "$trees" -eq 3
+          test "$trees" -eq 2
           test -f thirdparty/port/ffmpeg/COPYING.LGPLv2.1
       - name: Restore runtime assets
         run: |
@@ -309,9 +309,9 @@ jobs:
     if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       unsigned-artifact: enginehost-kirikiri2-bundle-unsigned
       bundle: dev.enginehost.kirikiri.v1.enginehost.tar.xz
       artifact-name: enginehost-kirikiri2-bundle
@@ -330,9 +330,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       artifact-name: enginehost-kirikiri2-bundle
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -349,9 +349,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       artifact-name: enginehost-kirikiri2-bundle
       channel: unstable
     secrets:
