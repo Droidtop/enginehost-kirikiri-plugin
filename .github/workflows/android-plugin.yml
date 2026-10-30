@@ -23,6 +23,14 @@ on:
         description: "Release tag (default: derived from the bundle id; testing adds -testing)"
         type: string
         default: ""
+      include_32_bit:
+        description: >-
+          Also build x86, for someone who needs a 32-bit engine. Such a build is
+          never signed or published: it ends as the unsigned bundle inputs
+          artifact (owner, 2026-10-30, Droidtop/tracker#646). Official releases
+          are 64-bit only.
+        type: boolean
+        default: false
 permissions:
   contents: read
 
@@ -54,7 +62,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [androidx64]
+        # androidx32 (x86) only for a 32-bit engine on request (include_32_bit), never published.
+        platform: ${{ fromJSON(inputs.include_32_bit && '["androidx32", "androidx64"]' || '["androidx64"]') }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -169,7 +178,13 @@ jobs:
         run: |
           set -euo pipefail
           trees=0
-          for tree in thirdparty/build/arch_androida64 thirdparty/build/arch_androidx64; do
+          expected=2
+          trees_to_check="thirdparty/build/arch_androida64 thirdparty/build/arch_androidx64"
+          if [ '${{ inputs.include_32_bit }}' = true ]; then
+            expected=3
+            trees_to_check="$trees_to_check thirdparty/build/arch_androidx32"
+          fi
+          for tree in $trees_to_check; do
             trees=$((trees + 1))
             for lib in avcodec avformat avfilter avutil swresample swscale; do
               archive="$tree/lib/lib$lib.a"
@@ -182,7 +197,7 @@ jobs:
             done
             echo "$tree: FFmpeg is LGPL-2.1-or-later"
           done
-          test "$trees" -eq 2
+          test "$trees" -eq "$expected"
           test -f thirdparty/port/ffmpeg/COPYING.LGPLv2.1
       - name: Restore runtime assets
         run: |
@@ -217,7 +232,7 @@ jobs:
           chmod +x gradlew
           sudo mkdir -p /build_android
           sudo chown "$USER" /build_android
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace ${{ inputs.include_32_bit && '-PPROP_APP_ABI=arm64-v8a:x86_64:x86' || '' }}
       # The shipped library is stripped. A crash in it names only offsets, so
       # keep the unstripped library from the same build beside the release;
       # a tombstone plus this file gives the function and line.
@@ -304,9 +319,10 @@ jobs:
     # Enginehost's one signing mechanism, pinned by commit: the key never
     # shares a runner with the build (Enginehost
     # docs/security/2026-09-24-ci-supply-chain.md). Signs exactly when the
-    # build packed a bundle; publish and unstable skip with it.
+    # build packed a bundle; publish and unstable skip with it. A 32-bit engine
+    # built on request is never signed.
     needs: android
-    if: ${{ startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish) }}
+    if: ${{ !inputs.include_32_bit && (startsWith(github.ref, 'refs/heads/plugin/') || (github.event_name == 'workflow_dispatch' && inputs.publish)) }}
     permissions:
       contents: read
     uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
