@@ -28,3 +28,13 @@ calls `KR2Activity.offerLink`, which hands the link to Enginehost's
 no `EngineHost`. Enginehost checks the link, names it, and offers to open or copy it (Enginehost
 docs/SPEC.md, "Links a game opens"). Before this, `shellExecute` did nothing on Android and
 answered true. Nothing else is executed, as before.
+
+## 32-bit engines only on request, never published (2026-10-30)
+
+Official KiriKiri cores ship arm64-v8a and x86_64 only (Droidtop/tracker#646). For someone who needs a
+32-bit engine, the owner kept a way to build one: dispatch `android-plugin.yml` on the line with
+`include_32_bit` on. CI then also builds the `androidx32` dependency tree, checks its FFmpeg licence
+with the others, and gradle adds x86 (`-PPROP_APP_ABI=arm64-v8a:x86_64:x86`). The build ends as the
+unsigned bundle inputs artifact and is never signed or published. Enginehost's signing gate refuses
+32-bit libraries in any case. armeabi-v7a is not built: upstream's armeabi-v7a dependency tree has no
+FFmpeg.
