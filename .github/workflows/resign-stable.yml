@@ -3,6 +3,9 @@ name: Re-sign a stable release
 # Re-signs one published stable release in signature format v1 and publishes
 # it beside the original as <tag>-resigned (Droidtop/tracker#550). The code is
 # unchanged; see Enginehost's .github/workflows/resign-engine-release.yml.
+# With only-64-bit, the release is published again without its 32-bit
+# libraries, as <tag>-64-bit under that newer build number; its 64-bit code
+# is the published code byte for byte (owner, 2026-10-30, Droidtop/tracker#646).
 on:
   # Only so GitHub registers this dispatch-only workflow, which it does on a
   # workflow's first event; a push run does nothing (the job is skipped).
@@ -14,6 +17,10 @@ on:
       source-tag:
         description: The published stable release to re-sign
         required: true
+      only-64-bit:
+        description: A pluginVersion newer than the release's (X.Y.Z-N) to publish it without its 32-bit libraries; empty re-signs it unchanged
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -23,10 +30,11 @@ jobs:
     if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/resign-engine-release.yml@cfde2656de97d55708a483302bf752bef89078d5
+    uses: Droidtop/enginehost/.github/workflows/resign-engine-release.yml@b2b206b586e208198f16e5ef7bef186eafce420f
     with:
-      tooling-sha: cfde2656de97d55708a483302bf752bef89078d5
+      tooling-sha: b2b206b586e208198f16e5ef7bef186eafce420f
       source-tag: ${{ inputs.source-tag }}
+      only-64-bit: ${{ inputs.only-64-bit }}
     secrets:
       ENGINEHOST_CERTIFICATE_KEY_PEM: ${{ secrets.ENGINEHOST_CERTIFICATE_KEY_PEM }}
       PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}
