@@ -32,6 +32,7 @@
 #include FT_TRUETYPE_UNPATENTED_H
 #include FT_SYNTHESIS_H
 #include FT_BITMAP_H
+#include FT_TRUETYPE_TABLES_H
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -429,6 +430,32 @@ void tFreeTypeFace::GetFaceNameList(std::vector<ttstr> &dest)
 
 //---------------------------------------------------------------------------
 /**
+ * The face's ascent in font units: how far below the top of a character cell the
+ * baseline sits.
+ *
+ * A Japanese Windows face such as MS Gothic fills its em exactly (ascent 0.859 em,
+ * descent 0.141 em), and GDI places it there for a font height of -Height, so a game
+ * lays its lines out for a cell one em tall with the baseline about 0.86 em down. A
+ * CJK OpenType face marks the same em box with OS/2 typo metrics that add up to the
+ * em; its hhea ascender is a different, taller figure (Noto Sans CJK JP, the face
+ * Enginehost answers MS Gothic with: typo 880/-120, hhea 1160/-288 per 1000). Using
+ * the hhea ascender put the baseline 1.16 em down, below the cell: at a 24 px font a
+ * line's letters ended on row 27 and its descenders on row 33, and Noble Works showed
+ * the letters whole and the descenders cut (Droidtop/tracker#853). On the em box the
+ * baseline is row 21, as MS Gothic's is, the kanji fill rows 2 to 24 and descenders
+ * end on row 27, where the letters ended before. Such a face is placed on its em box;
+ * any other face keeps the ascender FreeType reports, as before.
+ */
+FT_Long tFreeTypeFace::AscenderUnits() const
+{
+	const TT_OS2 *os2 = static_cast<const TT_OS2 *>(FT_Get_Sfnt_Table(FTFace, FT_SFNT_OS2));
+	if (os2 && os2->version != 0xFFFFu && os2->sTypoAscender > 0 &&
+		os2->sTypoAscender - os2->sTypoDescender == FTFace->units_per_EM)
+		return os2->sTypoAscender;
+	return FTFace->ascender;
+}
+//---------------------------------------------------------------------------
+/**
  * フォントの高さを設定する
  * @param height	フォントの高さ(ピクセル単位)
  */
@@ -527,7 +554,7 @@ tTVPCharacterData * tFreeTypeFace::GetGlyphFromCharcode(tjs_char code)
 
 		// tGlyphBitmap を作成して返す
 		//int baseline = (int)(FTFace->height + FTFace->descender) * FTFace->size->metrics.y_ppem / FTFace->units_per_EM;
-		int baseline = (int)( FTFace->ascender ) * FTFace->size->metrics.y_ppem / FTFace->units_per_EM;
+		int baseline = GetAscent();
 
 		glyph_bmp = new tTVPCharacterData(
 			ft_bmp->buffer,
@@ -579,7 +606,7 @@ bool tFreeTypeFace::GetGlyphRectFromCharcode( tTVPRect& rt, tjs_char code, tjs_i
 	if( !LoadGlyphSlotFromCharcode(code) )
 		return false;
 
-	int baseline = (int)( FTFace->ascender ) * FTFace->size->metrics.y_ppem / FTFace->units_per_EM;
+	int baseline = GetAscent();
 	/*
 	FT_Render_Glyph でレンダリングしないと以下の各値は取得できない
 	tjs_int t = baseline - FTFace->glyph->bitmap_top;

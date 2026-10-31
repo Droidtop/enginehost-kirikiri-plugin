@@ -14,6 +14,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `PLATFORMS_DISPATCH_TOKEN` push tells the plugins index about a new
   release within a minute instead of waiting for its six-hourly schedule.
 
+### Fixed
+
+- 1.0.9: text drawn in the Japanese face Enginehost answers MS Gothic with (Noto Sans
+  CJK JP) sits on its em box, as MS Gothic does, instead of a quarter em low: the
+  descenders of g, j, p, q and y are no longer cut off at the bottom of each line
+  (Droidtop/tracker#853).
+
 ### Changed
 
 - Moved signing into Enginehost's pinned `sign-engine-bundle.yml` job

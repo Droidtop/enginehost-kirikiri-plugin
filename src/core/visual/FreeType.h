@@ -87,17 +87,20 @@ public:
 		return static_cast<tjs_char>( FT_Get_First_Char( FTFace, &gindex ) );
 	}
 
+	// The face's ascent in font units: where the baseline sits below the cell's top.
+	// See FreeType.cpp.
+	FT_Long AscenderUnits() const;
 	tjs_int GetAscent() const {
 		tjs_int ppem = FTFace->size->metrics.y_ppem;
 		tjs_int upe = FTFace->units_per_EM;
-		return FTFace->ascender * ppem / upe;
+		return AscenderUnits() * ppem / upe;
 	}
 	void GetUnderline( tjs_int& pos, tjs_int& thickness ) const {
 		tjs_int ppem = FTFace->size->metrics.y_ppem;
 		tjs_int upe = FTFace->units_per_EM;
 		tjs_int liney = 0; //‰ºü‚ÌˆÊ’u
 		tjs_int height = FT_PosToInt( FTFace->size->metrics.height );
-		liney = ((FTFace->ascender-FTFace->underline_position) * ppem) / upe;
+		liney = ((AscenderUnits()-FTFace->underline_position) * ppem) / upe;
 		thickness = (FTFace->underline_thickness * ppem) / upe;
 		if( thickness < 1 ) thickness = 1;
 		if( liney > height ) {
@@ -110,7 +113,7 @@ public:
 		tjs_int upe = FTFace->units_per_EM;
 		thickness = FTFace->underline_thickness * ppem / upe;
 		if( thickness < 1 ) thickness = 1;
-		pos = FTFace->ascender * 7 * ppem / (10 * upe);
+		pos = AscenderUnits() * 7 * ppem / (10 * upe);
 	}
 	tTVPCharacterData * GetGlyphFromCharcode(tjs_char code);
 	bool GetGlyphRectFromCharcode(struct tTVPRect& rt, tjs_char code, tjs_int& advancex, tjs_int& advancey );
