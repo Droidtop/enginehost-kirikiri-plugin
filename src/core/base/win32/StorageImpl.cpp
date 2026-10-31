@@ -27,6 +27,10 @@
 #include "Random.h"
 
 #include <time.h>
+#include <chrono>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 #include "Application.h"
 #include "StringUtil.h"
@@ -857,6 +861,12 @@ bool TVPCreateFolders(const ttstr &folder)
 //---------------------------------------------------------------------------
 // tTVPLocalFileStream
 //---------------------------------------------------------------------------
+static tjs_int64 TVPMonotonicMs()
+{
+	return std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+//---------------------------------------------------------------------------
 tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
 	const ttstr &localname, tjs_uint32 flag)
     : MemBuffer(nullptr), FileName(localname), Handle(-1)
@@ -876,6 +886,7 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
 //			_lastFileSystemChanged = true;
         }
 		MemBuffer = new tTVPMemoryStream();
+		OpenedAtMs = TVPMonotonicMs();
 		return;
 	}
 
@@ -921,7 +932,25 @@ bool TVPWriteDataToFile(const ttstr &filepath, const void *data, unsigned int le
 tTVPLocalFileStream::~tTVPLocalFileStream()
 {
     if(MemBuffer) {
-		if (!TVPWriteDataToFile(FileName, MemBuffer->GetInternalBuffer(), MemBuffer->GetSize())) {
+		tjs_int64 writing = TVPMonotonicMs();
+		bool written = TVPWriteDataToFile(FileName, MemBuffer->GetInternalBuffer(), MemBuffer->GetSize());
+#ifdef __ANDROID__
+		// Where a save's time goes, file by file (Droidtop/tracker#853): how long the file was
+		// open while the game built it (TJS serialising its data, an encoder its thumbnail), and
+		// how long the write to storage took (the rename to .bak, the new file, the data, the
+		// .bak removed: each through the broker and, on the SD card, FUSE). Only the file's
+		// name is printed, not its folder.
+		if (OpenedAtMs) {
+			std::string name = FileName.AsStdString();
+			size_t slash = name.find_last_of('/');
+			__android_log_print(ANDROID_LOG_INFO, "EnginehostKiriKiri",
+				"wrote %s: %u bytes, built in %lld ms, written in %lld ms",
+				slash == std::string::npos ? name.c_str() : name.c_str() + slash + 1,
+				(unsigned) MemBuffer->GetSize(), (long long) (writing - OpenedAtMs),
+				(long long) (TVPMonotonicMs() - writing));
+		}
+#endif
+		if (!written) {
 			delete MemBuffer;
 			ttstr filename(FileName);
 			FileName.~tTJSString();
