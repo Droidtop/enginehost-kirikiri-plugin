@@ -1,0 +1,14 @@
+{
+  "description": "Enginehost plugin implementation repository for Kirikiroid2Yuri",
+  "engine": "kirikiri2",
+  "engineContexts": [
+    "default"
+  ],
+  "formatVersion": 1,
+  "implementation": {
+    "id": "kirikiroid2yuri",
+    "name": "Kirikiroid2Yuri",
+    "upstream": "https://github.com/YuriSizuku/Kirikiroid2Yuri"
+  },
+  "origin": "https://github.com/droidtop/enginehost-kirikiri-plugin"
+}

@@ -1,0 +1,22 @@
+Kirikiri plugin for Enginehost
+Enginehost wrapper and integration code: Copyright the Enginehost contributors, GNU General Public
+License, version 3 (LICENSE).
+
+Upstream: Kirikiroid2Yuri / Kirikiri2 (TVP2) (https://github.com/YuriSizuku/Kirikiroid2Yuri), modified BSD-style licence of W.Dee and the Kirikiri Z Project contributors.
+The Kirikiri licence is BSD-3-Clause style and GPL-compatible; its conditions (keep the notice, reproduce it
+with binaries, no endorsement) are met by LICENSE.kirikiri and the bundle's notices.
+Upstream's own licence and notice files stay in the tree unchanged: LICENSE.kirikiri (a byte-identical copy of upstream's LICENSE, which the GPL-3.0 LICENSE now takes the place of), thirdparty/.
+The combined work is distributed under GPL-3.0 (owner rule, 2026-10-14: a codebase that can be
+GPL-3.0 must be). Every upstream copyright and licence notice in the source files stays as it is.
+FFmpeg (every ABI) is LGPL-2.1-or-later. Audit, 2026-10-14: the arm64-v8a tree is upstream's published build
+(Kirikiroid2Yuri release "deps", thirdparty_build.tar.gz, sha256
+99edcfefc9685b14fe8a7cc2a63aa90be2d4f4652ae6843cd189490eb49f9729). Its libavutil.a records the configure line
+it was built with, and it is the same line script/_android.sh uses for the x86 and x86_64 trees this
+repository builds: no --enable-gpl, no --enable-version3, no --enable-nonfree, no external codec libraries.
+Each of libavcodec, libavformat, libavfilter, libavutil, libswresample and libswscale reports
+"LGPL version 2.1 or later". Source: FFmpeg 3.3-git, https://github.com/zeas2/ffmpeg commit
+896ab301a75f47aca086936c033f10afc2f9e6d8 (also inside upstream's thirdparty_port.tar.gz, sha256
+ba188338d8ca4e9b73854523fe39febca276b5cad2b89227010853ca88119d8a). LGPL-2.1-or-later combines with
+GPL-3.0; the libraries are linked statically, and the relinking condition is met because the whole
+work's source is published. CI fails a build whose FFmpeg reports any other licence, and the bundle
+carries FFmpeg's LGPL-2.1 text as LICENSE.ffmpeg.txt.

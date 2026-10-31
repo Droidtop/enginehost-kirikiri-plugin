@@ -300,26 +300,147 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
 	static public KR2Activity sInstance;
 	static public KR2Activity GetInstance() {return sInstance;}
+
+	// Enginehost: a link the game or the engine opens (TVPOfferLink) is offered to the person by
+	// Enginehost, never opened here. This core runs its own Activity and has no EngineHost, so it
+	// reaches Enginehost's named bridge, dev.enginehost.ActivityLinks, by reflection (owner,
+	// 2026-10-24). False when that bridge is missing (an older Enginehost): nothing opens.
+	static public boolean offerLink(String url) {
+		android.app.Activity activity = sInstance;
+		if (activity == null || url == null) return false;
+		try {
+			Class<?> links = Class.forName("dev.enginehost.ActivityLinks");
+			Object taken = links.getMethod("offer", android.app.Activity.class, String.class)
+				.invoke(null, activity, url);
+			return Boolean.TRUE.equals(taken);
+		} catch (Exception e) {
+			android.util.Log.w("EnginehostKiriKiri", "The link was not offered: " + e);
+			return false;
+		}
+	}
     
+	/** The game folder Enginehost started, or null for a launch without Enginehost. */
+	static File sEngineHostGame;
+
+	/**
+	 * KiriKiri's own files (the global preference, the font cache, dumps) when Enginehost started
+	 * it: the save folder's "kirikiri-engine". The native side finds them through getFilesDir() on
+	 * this activity, so this one override moves them all. Under the sandbox's lockdown Enginehost's
+	 * private files are not the core's (Droidtop/tracker#550); the save folder is, as AGS keeps its
+	 * own in "ags-engine".
+	 */
+	private File engineHostFiles;
+
+	@Override
+	public File getFilesDir() {
+		return engineHostFiles != null ? engineHostFiles : super.getFilesDir();
+	}
+
+	/**
+	 * KiriKiri's preferences (PreferenceManager's defaults: the SAF tree it was given, UI choices;
+	 * cocos2d-x's UserDefault) beside its other files when Enginehost started it. Enginehost's own
+	 * shared_prefs are not the core's: under the lockdown every read and write of them was refused,
+	 * about 150 times a launch (Droidtop/tracker#550, dev.494). The platform writes preferences only
+	 * under the app's data directory, so these are kept by [FilePreferences].
+	 */
+	@Override
+	public SharedPreferences getSharedPreferences(String name, int mode) {
+		if (engineHostFiles == null) return super.getSharedPreferences(name, mode);
+		return FilePreferences.open(new File(new File(engineHostFiles, "shared_prefs"), name + ".json"));
+	}
+
 	@Override
 	public void onCreate(Bundle savedInstanceState) {
-		sInstance = this;
-        Sp = PreferenceManager.getDefaultSharedPreferences(this);
-		super.onCreate(savedInstanceState);
-	
-		if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP) {
-			for(String path : getExtSdCardPaths(this)) {
-		        if (!isWritableNormalOrSaf(path)) {
-		            guideDialogForLEXA(path);
-		        }
+		String engineHostPath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
+		if (engineHostPath != null) {
+			String context = getIntent().getStringExtra("dev.enginehost.runtime.ENGINE_CONTEXT");
+			if (context != null && !context.isEmpty() && !"default".equals(context)) {
+				throw new IllegalArgumentException("Unsupported KiriKiri engineContext: " + context);
+			}
+			if (!new File(engineHostPath).isDirectory()) {
+				throw new IllegalArgumentException("enginehost did not provide a valid KiriKiri game folder");
 			}
 		}
-		
-		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            requestExternalWrite();
-        }
+		sInstance = this;
+		if (engineHostPath != null) {
+			sEngineHostGame = new File(engineHostPath);
+			String save = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+			if (save != null && !save.isEmpty()) {
+				File own = new File(save, "kirikiri-engine");
+				own.mkdirs();
+				if (own.isDirectory()) engineHostFiles = own;
+			}
+		}
+        Sp = PreferenceManager.getDefaultSharedPreferences(this);
+		super.onCreate(savedInstanceState);
+		if (engineHostPath != null) {
+			// JniHelper looks classes up with the loader getClassLoader() gave Cocos2dxHelper, by
+			// slash name, and on the rig it once failed to find this one on the GL thread
+			// (Droidtop/tracker#550, dev.494). Whether the same loader finds it here says whether that
+			// lookup is the loader's or the thread's.
+			ClassLoader loader = getClassLoader();
+			String found;
+			try {
+				found = loader.loadClass("org/cocos2dx/lib/Cocos2dxRenderer") != null ? "yes" : "no";
+			} catch (Throwable e) {
+				found = "no (" + e + ")";
+			}
+			Log.i("kr2activaty", "class loader " + loader.getClass().getName() + " finds org/cocos2dx/lib/Cocos2dxRenderer: " + found);
+		}
+	
+		// Started by Enginehost, the game's storage is Enginehost's to grant: it opens the
+		// game and save folders for the core, through the sandbox's broker when the core is
+		// locked down. The standalone app's own checks would only get in the way. Locked
+		// down, the SD-card root is outside every grant, so this showed its "/storage/..."
+		// access dialog over the game, and Cancel left a black screen (Droidtop/tracker#550,
+		// Retroid Pocket 5, 2026-10-24). They stay for a launch without Enginehost.
+		if (engineHostPath == null) {
+			if (Build.VERSION.SDK_INT>=Build.VERSION_CODES.LOLLIPOP) {
+				for(String path : getExtSdCardPaths(this)) {
+			        if (!isWritableNormalOrSaf(path)) {
+			            guideDialogForLEXA(path);
+			        }
+				}
+			}
+
+			if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+	            requestExternalWrite();
+	        }
+		}
 		initDump(this.getFilesDir().getAbsolutePath() + "/dump");
+
+		// Real hook for a host app to skip the file-browser UI and start a
+		// specific game folder directly -- see nativeSetStartupPath's own
+		// doc comment in AndroidUtils.cpp (TVPCheckStartupArg) for why this
+		// exists and exactly when it's safe to call. Checks enginehost's
+		// own real dev.enginehost.LAUNCH contract extra ("path" --
+		// dev.enginehost.GameRunner's real putExtra key) first, since this
+		// activity IS now a real enginehost plugin (declares
+		// dev.enginehost.plugin.RUN in the manifest directly, no separate
+		// wrapper app); EXTRA_STARTUP_PATH stays as a fallback for any
+		// other real caller that isn't enginehost.
+		String startupPath = engineHostPath;
+		if (startupPath != null && !startupPath.isEmpty()) {
+			File gameFolder = new File(startupPath);
+			File looseStartup = new File(gameFolder, "startup.tjs");
+			File mainArchive = new File(gameFolder, "data.xp3");
+			if (looseStartup.isFile()) {
+				startupPath = looseStartup.getAbsolutePath();
+			} else if (mainArchive.isFile()) {
+				startupPath = mainArchive.getAbsolutePath();
+			}
+		}
+		if (startupPath == null || startupPath.isEmpty()) {
+			startupPath = getIntent().getStringExtra(EXTRA_STARTUP_PATH);
+		}
+		if (startupPath != null && !startupPath.isEmpty()) {
+			nativeSetStartupPath(startupPath);
+		}
 	}
+
+	public static final String EXTRA_STARTUP_PATH = "org.tvp.kirikiri2.STARTUP_PATH";
+
+	private static native void nativeSetStartupPath(String path);
 	
 	@Override
 	public void onDestroy() {
@@ -630,6 +751,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, true);
                     return true;
                 default:
@@ -649,6 +783,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
                 case KeyEvent.KEYCODE_DPAD_CENTER:
+                // The keys a visual novel is actually driven by, so that a
+                // gamepad (translated in MainActivity) and a keyboard reach
+                // the engine: advance, skip, menu, backlog.
+                case KeyEvent.KEYCODE_SPACE:
+                case KeyEvent.KEYCODE_ESCAPE:
+                case KeyEvent.KEYCODE_CTRL_LEFT:
+                case KeyEvent.KEYCODE_CTRL_RIGHT:
+                case KeyEvent.KEYCODE_PAGE_UP:
+                case KeyEvent.KEYCODE_PAGE_DOWN:
+                // KAG's own shortcut letters: A is auto-advance and R is the
+                // backlog, and there is no other key for either.
+                case KeyEvent.KEYCODE_A:
+                case KeyEvent.KEYCODE_R:
                 	nativeKeyAction(pKeyCode, false);
                     return true;
                 default:
@@ -771,6 +918,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     public int get_res_sd_operate_step() { return -1; }
 
     static void requireLEXA(final String path) {
+		// The native side's way to the same SD-card dialog; Enginehost owns storage when it started the game.
+		if (sEngineHostGame != null) return;
 		msgHandler.post(new Runnable() {
 			@Override
 			public void run() {
@@ -828,6 +977,17 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static final boolean isWritableNormal(final String path) {
+        // TVPCheckStartupPath asks whether the game can save beside itself by probing its folder.
+        // Started by Enginehost, it saves in "savedata" there, the one game sub-folder the bundle
+        // declares writable (gameWrites); the rest of the folder stays read-only under the lockdown,
+        // and probing it failed to "use the internal path" (Droidtop/tracker#550). So the answer is
+        // whether savedata takes writes.
+        File game = sEngineHostGame;
+        if (game != null && path != null && path.startsWith(game.getAbsolutePath() + "/")) {
+            File saves = new File(game, "savedata");
+            saves.mkdirs();
+            return saves.isDirectory() && saves.canWrite();
+        }
         boolean ret = isWritableNormalOrSaf(path);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestExternalWrite();
