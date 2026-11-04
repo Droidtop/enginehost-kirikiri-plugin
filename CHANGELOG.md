@@ -23,6 +23,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 1.0.10: each file a save writes is logged with its size, how long the game took to build it
   and how long the write to storage took, to find where a slow save's time goes
   (Droidtop/tracker#853).
+- 1.0.11: a moment that takes 300 ms or more (opening the load menu, say) is logged with where
+  its time went: file lookups and how many found nothing, opens, reads, images and scripts, and
+  the rest. Nothing the game does changes (Droidtop/tracker#853).
 
 ### Changed
 
