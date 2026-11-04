@@ -1,6 +1,6 @@
 {
   "line": "stable",
-  "upstream": "802aebf66f215f605d699fa9d12ee6e5d5c8be28",
+  "upstream": "f17b25b1d0ac7dfefb76cd644e2d5366234cc5da",
   "upstreamVersion": "1.4.0",
-  "pluginCore": "73d6fe7e9ed3a9446c1ea653fc956055c119ac97"
+  "pluginCore": "de047918bf6079118a22581a1ed8f02a87443699"
 }

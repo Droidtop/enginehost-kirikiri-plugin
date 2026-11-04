@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <memory>
 #include "StorageIntf.h"
+#include "EnginehostProfile.h"
 #include "tjsUtils.h"
 #include "MsgIntf.h"
 #include "EventIntf.h"
@@ -1168,6 +1169,9 @@ ttstr TVPGetPlacedPath(const ttstr & name)
 	ttstr * incache = TVPAutoPathCache.FindAndTouch(name);
 	if(incache) return *incache; // found in cache
 
+	// A lookup past the cache: a stat, and on a miss the auto path table. Misses are never cached
+	// here, so a name asked for again is looked up again (Droidtop/tracker#853 measures how often).
+	EhProfScope prof(EH_PROF_LOOKUP);
 	tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
 
 	ttstr normalized(TVPNormalizeStorageName(name));
@@ -1197,6 +1201,7 @@ ttstr TVPGetPlacedPath(const ttstr & name)
 
 	// not found
 	// TVPAutoPathCache.Add(name, ttstr()); // do not cache now
+	prof.Missed();
 	return ttstr();
 }
 //---------------------------------------------------------------------------

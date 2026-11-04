@@ -33,6 +33,7 @@
 #endif
 
 #include "Application.h"
+#include "../EnginehostProfile.h"
 #include "StringUtil.h"
 #include "FilePathUtil.h"
 #include "Platform.h"
@@ -871,6 +872,7 @@ tTVPLocalFileStream::tTVPLocalFileStream(const ttstr &origname,
 	const ttstr &localname, tjs_uint32 flag)
     : MemBuffer(nullptr), FileName(localname), Handle(-1)
 {
+	EhProfScope prof(EH_PROF_OPEN);
 	tjs_uint32 access = flag & TJS_BS_ACCESS_MASK;
     if(access == TJS_BS_WRITE) {
         if (TVPCheckExistentLocalFile(localname)) {
@@ -982,7 +984,10 @@ tjs_uint TJS_INTF_METHOD tTVPLocalFileStream::Read(void *buffer, tjs_uint read_s
     if(MemBuffer) {
         return MemBuffer->Read(buffer, read_size);
 	}
-    return read(Handle, buffer, read_size);
+	EhProfScope prof(EH_PROF_READ);
+	ssize_t got = read(Handle, buffer, read_size);
+	if (got > 0) prof.Bytes((uint64_t) got);
+	return (tjs_uint) got;
 }
 //---------------------------------------------------------------------------
 tjs_uint TJS_INTF_METHOD tTVPLocalFileStream::Write(const void *buffer, tjs_uint write_size)

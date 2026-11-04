@@ -13,6 +13,7 @@
 
 #include <stdlib.h>
 #include "GraphicsLoaderIntf.h"
+#include "../base/EnginehostProfile.h"
 #include "LayerBitmapIntf.h"
 #include "LayerIntf.h"
 #include "StorageIntf.h"
@@ -1969,6 +1970,7 @@ int TVPLoadGraphic(iTVPBaseBitmap *dest, const ttstr &name, tjs_int32 keyidx,
 	tjs_uint desw, tjs_uint desh,
 	tTVPGraphicLoadMode mode, ttstr *provincename, iTJSDispatch2 ** metainfo)
 {
+	EhProfScope prof(EH_PROF_IMAGE); // Droidtop/tracker#853
 	// loading with cache management
 	ttstr nname = TVPNormalizeStorageName(name);
 	tjs_uint32 hash;
