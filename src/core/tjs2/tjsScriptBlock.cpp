@@ -11,6 +11,7 @@
 #include "tjsCommHead.h"
 
 #include "tjsScriptBlock.h"
+#include "../base/EnginehostProfile.h"
 #include "tjsInterCodeGen.h"
 #include "tjsConstArrayData.h"
 #include "tjs.h"
@@ -231,6 +232,7 @@ void tTJSScriptBlock::SetText(tTJSVariant *result, const tjs_char *text,
 	// the script will be compiled as an expression if isexpressn is true.
 	if(!text) return;
 	if(!text[0]) return;
+	EhProfScope prof(EH_PROF_SCRIPT); // Droidtop/tracker#853
 
 	TJS_D((TJS_W("Counting lines ...\n")))
 
