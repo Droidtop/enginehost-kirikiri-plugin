@@ -20,6 +20,9 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   CJK JP) sits on its em box, as MS Gothic does, instead of a quarter em low: the
   descenders of g, j, p, q and y are no longer cut off at the bottom of each line
   (Droidtop/tracker#853).
+- 1.0.10: each file a save writes is logged with its size, how long the game took to build it
+  and how long the write to storage took, to find where a slow save's time goes
+  (Droidtop/tracker#853).
 
 ### Changed
 

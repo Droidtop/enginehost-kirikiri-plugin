@@ -52,6 +52,9 @@ private:
     int Handle;
     tTVPMemoryStream *MemBuffer = nullptr;
     ttstr FileName;
+    // When a file opened for writing was opened, in ms of the monotonic clock: what its close
+    // logs a save's time against (Droidtop/tracker#853). 0 for a file opened to read.
+    tjs_int64 OpenedAtMs = 0;
 
 public:
 	tTVPLocalFileStream(const ttstr &origname, const ttstr & localname,
