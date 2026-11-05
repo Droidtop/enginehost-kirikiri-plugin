@@ -38,3 +38,16 @@ with the others, and gradle adds x86 (`-PPROP_APP_ABI=arm64-v8a:x86_64:x86`). Th
 unsigned bundle inputs artifact and is never signed or published. Enginehost's signing gate refuses
 32-bit libraries in any case. armeabi-v7a is not built: upstream's armeabi-v7a dependency tree has no
 FFmpeg.
+
+## Branches
+
+A core has only these branches (Droidtop/tracker#324, the owner, 2026-11-05):
+
+- `upstream-sync` follows upstream Kirikiroid2Yuri (`YuriSizuku/Kirikiroid2Yuri`). The daily
+  `sync-upstream` workflow (on `plugin-core`) merges upstream's `yuri` into it; nothing of ours
+  is developed there.
+- `plugin-core`, the default branch, is the Enginehost recipe: the wrapper, the build workflows,
+  the bundle metadata, the patch series and the line pins. Recipe changes land here first,
+  through `ci/` branches.
+- `plugin/<line>` is upstream at the commit `enginehost/lines/<line>/line.json` pins, composed
+  with `plugin-core` by the plugin-line tool. Nothing on it is written by hand.
